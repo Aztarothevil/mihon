@@ -21,9 +21,9 @@ class LocalSourceFileSystem(
     }
 
     fun getMangaDirectory(name: String): UniFile? {
-        return getBaseDirectory()
-            ?.findFile(name)
-            ?.takeIf { it.isDirectory }
+        val baseDir = getBaseDirectory() ?: return null
+        return baseDir.findFile(name)?.takeIf { it.isDirectory }
+            ?: baseDir.listFiles().orEmpty().firstOrNull { it.isDirectory && it.name?.equals(name, ignoreCase = true) == true }
     }
 
     fun getFilesInMangaDirectory(name: String): List<UniFile> {

@@ -107,6 +107,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import logcat.LogPriority
+import kotlinx.coroutines.Dispatchers
 import mihon.app.di.AppGraph
 import mihon.app.di.appGraph
 import mihon.core.metro.metroGraph
@@ -320,8 +321,13 @@ class MainActivity : BaseActivity() {
         }
         setSplashScreenExitAnimation(splashScreen)
 
-        if (isLaunch && libraryPreferences.autoClearChapterCache.get()) {
-            lifecycleScope.launch { chapterCache.clear() }
+        if (isLaunch) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                graph.localSourceSync.await()
+            }
+            if (libraryPreferences.autoClearChapterCache.get()) {
+                lifecycleScope.launch { chapterCache.clear() }
+            }
         }
     }
 

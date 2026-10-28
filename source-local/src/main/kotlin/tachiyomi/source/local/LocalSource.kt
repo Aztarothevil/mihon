@@ -139,8 +139,8 @@ class LocalSource(
                         title = mangaDir.name.orEmpty()
                         url = mangaDir.name.orEmpty()
 
-                        // Try to find the cover
-                        coverManager.find(mangaDir.name.orEmpty())?.let {
+                        // Try to find or generate the cover
+                        getOrGenerateCover(mangaDir.name.orEmpty(), this)?.let {
                             thumbnail_url = it.uri.toString()
                         }
                     }
@@ -164,7 +164,7 @@ class LocalSource(
 
     // Manga details related
     private suspend fun getMangaDetails(manga: SManga): SManga = withContext(Dispatchers.IO) {
-        coverManager.find(manga.url)?.let {
+        getOrGenerateCover(manga.url, manga)?.let {
             manga.thumbnail_url = it.uri.toString()
         }
 
@@ -290,7 +290,7 @@ class LocalSource(
     }
 
     // Chapters
-    private suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
+    suspend fun getChapterList(manga: SManga): List<SChapter> = withContext(Dispatchers.IO) {
         val chapters = fileSystem.getFilesInMangaDirectory(manga.url)
             // Only keep supported formats
             .filterNot { it.name.orEmpty().startsWith('.') }
@@ -340,6 +340,20 @@ class LocalSource(
         chapters
     }
 
+    private suspend fun getOrGenerateCover(mangaDirName: String, manga: SManga): UniFile? {
+        val existingCover = coverManager.find(mangaDirName)
+        if (existingCover != null) return existingCover
+
+        return try {
+            val chapters = getChapterList(manga)
+            val firstChapter = chapters.lastOrNull() ?: return null
+            updateCover(firstChapter, manga)
+        } catch (e: Exception) {
+            logcat(LogPriority.ERROR, e) { "Failed to generate cover for local manga $mangaDirName" }
+            null
+        }
+    }
+
     // Filters
     override fun getFilterList() = FilterList(OrderBy.Popular(context))
 
@@ -349,10 +363,10 @@ class LocalSource(
     fun getFormat(chapter: SChapter): Format {
         try {
             val (mangaDirName, chapterName) = chapter.url.split('/', limit = 2)
-            return fileSystem.getBaseDirectory()
-                ?.findFile(mangaDirName)
-                ?.findFile(chapterName)
-                ?.let(Format.Companion::valueOf)
+            val mangaDir = fileSystem.getMangaDirectory(mangaDirName)
+            val chapterFile = mangaDir?.findFile(chapterName)
+                ?: mangaDir?.listFiles().orEmpty().firstOrNull { it.name?.equals(chapterName, ignoreCase = true) == true }
+            return chapterFile?.let(Format.Companion::valueOf)
                 ?: throw Exception(context.stringResource(MR.strings.chapter_not_found))
         } catch (e: Format.UnknownFormatException) {
             throw Exception(context.stringResource(MR.strings.local_invalid_format))

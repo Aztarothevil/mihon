@@ -18,6 +18,7 @@ import eu.kanade.tachiyomi.data.backup.create.BackupCreateWorker
 import eu.kanade.tachiyomi.data.backup.restore.BackupRestoreWorker
 import eu.kanade.tachiyomi.data.cache.CoverCache
 import eu.kanade.tachiyomi.data.download.DownloadCache
+import eu.kanade.tachiyomi.data.library.LocalSourceSync
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.download.DownloadWorker
 import eu.kanade.tachiyomi.data.library.LibraryUpdateWorker
@@ -102,6 +103,7 @@ interface AppGraph : ViewModelGraph {
     val chapterCache: ChapterCache
     val coverCache: CoverCache
     val downloadCache: DownloadCache
+    val localSourceSync: LocalSourceSync
 
     val json: Json
     val protoBuf: ProtoBuf
