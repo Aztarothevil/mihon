@@ -92,7 +92,9 @@ class DownloadProvider(
      * @param source the source to query.
      */
     suspend fun findSourceDir(source: Source): UniFile? = withContext(Dispatchers.IO) {
-        downloadsDir?.findFile(getSourceDirName(source))
+        val sourceDirName = getSourceDirName(source)
+        downloadsDir?.findFile(sourceDirName)
+            ?: downloadsDir?.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(sourceDirName, ignoreCase = true) == true }
     }
 
     /**
@@ -102,7 +104,10 @@ class DownloadProvider(
      * @param source the source of the manga.
      */
     suspend fun findMangaDir(mangaTitle: String, source: Source): UniFile? = withContext(Dispatchers.IO) {
-        findSourceDir(source)?.findFile(getMangaDirName(mangaTitle))
+        val mangaDirName = getMangaDirName(mangaTitle)
+        val sourceDir = findSourceDir(source)
+        sourceDir?.findFile(mangaDirName)
+            ?: sourceDir?.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(mangaDirName, ignoreCase = true) == true }
     }
 
     /**

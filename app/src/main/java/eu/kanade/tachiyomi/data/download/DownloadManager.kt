@@ -9,6 +9,7 @@ import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.online.HttpSource
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.drop
@@ -191,7 +192,15 @@ class DownloadManager(
      * @param manga the manga of the chapters.
      */
     fun getDownloadedChapterIds(chapters: List<Chapter>, manga: Manga): Set<Long> {
-        return cache.getDownloadedChapterIds(chapters, manga.title, manga.source)
+        val cachedIds = cache.getDownloadedChapterIds(chapters, manga.title, manga.source)
+        if (cachedIds.isNotEmpty()) return cachedIds
+
+        return runCatching {
+            runBlocking {
+                val source = sourceManager.getOrStub(manga.source)
+                provider.findDownloadedChapterIds(chapters, manga, source)
+            }
+        }.getOrDefault(cachedIds)
     }
 
     /**
@@ -199,6 +208,7 @@ class DownloadManager(
      *
      * @param chapterName the name of the chapter to query.
      * @param chapterScanlator scanlator of the chapter to query
+     * @param chapterUrl the url of the chapter to query
      * @param mangaTitle the title of the manga to query.
      * @param sourceId the id of the source of the chapter.
      */
@@ -209,7 +219,15 @@ class DownloadManager(
         mangaTitle: String,
         sourceId: Long,
     ): Boolean {
-        return cache.isChapterDownloaded(chapterName, chapterScanlator, chapterUrl, mangaTitle, sourceId)
+        val downloaded = cache.isChapterDownloaded(chapterName, chapterScanlator, chapterUrl, mangaTitle, sourceId)
+        if (downloaded) return true
+
+        return runCatching {
+            runBlocking {
+                val source = sourceManager.getOrStub(sourceId)
+                isChapterDownloadedOnDisk(chapterName, chapterScanlator, chapterUrl, mangaTitle, source)
+            }
+        }.getOrDefault(false)
     }
 
     /**

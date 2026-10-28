@@ -137,13 +137,19 @@ class DownloadCache(
     fun getDownloadedChapterIds(chapters: List<Chapter>, mangaTitle: String, sourceId: Long): Set<Long> {
         renewCache()
 
-        val mangaDir = rootDownloadsDir.sourceDirs[sourceId]?.mangaDirs?.get(provider.getMangaDirName(mangaTitle))
+        val sourceDir = rootDownloadsDir.sourceDirs[sourceId]
+        val targetMangaDirName = provider.getMangaDirName(mangaTitle)
+        val mangaDir = sourceDir?.mangaDirs?.get(targetMangaDirName)
+            ?: sourceDir?.mangaDirs?.entries?.firstOrNull { it.key.equals(targetMangaDirName, ignoreCase = true) }?.value
+
         if (mangaDir == null || mangaDir.chapterDirs.isEmpty()) return emptySet()
 
         return chapters
             .filter { chapter ->
                 provider.getValidChapterDirNames(chapter.name, chapter.scanlator, chapter.url)
-                    .any { it in mangaDir.chapterDirs }
+                    .any { validName ->
+                        mangaDir.chapterDirs.any { it.equals(validName, ignoreCase = true) }
+                    }
             }
             .mapTo(HashSet()) { it.id }
     }
@@ -168,13 +174,17 @@ class DownloadCache(
 
         val sourceDir = rootDownloadsDir.sourceDirs[sourceId]
         if (sourceDir != null) {
-            val mangaDir = sourceDir.mangaDirs[provider.getMangaDirName(mangaTitle)]
+            val targetMangaDirName = provider.getMangaDirName(mangaTitle)
+            val mangaDir = sourceDir.mangaDirs[targetMangaDirName]
+                ?: sourceDir.mangaDirs.entries.firstOrNull { it.key.equals(targetMangaDirName, ignoreCase = true) }?.value
             if (mangaDir != null) {
                 return provider.getValidChapterDirNames(
                     chapterName,
                     chapterScanlator,
                     chapterUrl,
-                ).any { it in mangaDir.chapterDirs }
+                ).any { validName ->
+                    mangaDir.chapterDirs.any { it.equals(validName, ignoreCase = true) }
+                }
             }
         }
         return false
