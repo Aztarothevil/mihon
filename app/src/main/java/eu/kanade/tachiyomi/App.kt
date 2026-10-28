@@ -29,6 +29,7 @@ import eu.kanade.domain.ui.model.setAppCompatDelegateThemeMode
 import eu.kanade.tachiyomi.crash.CrashActivity
 import eu.kanade.tachiyomi.crash.GlobalExceptionHandler
 import eu.kanade.tachiyomi.data.cache.CoverCache
+import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.data.coil.BufferedSourceFetcher
 import eu.kanade.tachiyomi.data.coil.CoverRequestInterceptor
 import eu.kanade.tachiyomi.data.coil.ExtensionIconFetcher
@@ -67,6 +68,7 @@ import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.util.system.logcat
+import tachiyomi.domain.manga.repository.MangaRepository
 import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.widget.WidgetManager
@@ -93,9 +95,13 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
     // Lazy: only the image loader uses these, and process starts without UI (workers, receivers) never build it
     @Inject private lateinit var coverCache: Lazy<CoverCache>
 
+    @Inject private lateinit var downloadProvider: Lazy<DownloadProvider>
+
     @Inject private lateinit var networkHelper: Lazy<NetworkHelper>
 
     @Inject private lateinit var sourceManager: Lazy<SourceManager>
+
+    @Inject private lateinit var mangaRepository: Lazy<MangaRepository>
 
     @Inject private lateinit var extensionManager: Lazy<ExtensionManager>
 
@@ -214,8 +220,8 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
                 add(ImageDecoder.Factory())
                 // Fetcher.Factory
                 add(BufferedSourceFetcher.Factory())
-                add(MangaCoverFetcher.MangaCoverFactory(callFactoryLazy, coverCache, sourceManager))
-                add(MangaCoverFetcher.MangaFactory(callFactoryLazy, coverCache, sourceManager))
+                add(MangaCoverFetcher.MangaCoverFactory(callFactoryLazy, coverCache, sourceManager, downloadProvider, mangaRepository))
+                add(MangaCoverFetcher.MangaFactory(callFactoryLazy, coverCache, sourceManager, downloadProvider))
                 add(ExtensionIconFetcher.ExtensionFactory(context))
                 add(ExtensionIconFetcher.SourceFactory(context, extensionManager))
                 // Keyer

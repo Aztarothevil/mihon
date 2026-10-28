@@ -17,6 +17,8 @@ import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.storage.displayablePath
+import tachiyomi.core.common.storage.nameWithoutExtension
+import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.library.service.LibraryPreferences
@@ -24,6 +26,7 @@ import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.storage.service.StorageManager
 import tachiyomi.i18n.MR
 import java.io.IOException
+import java.io.InputStream
 
 /**
  * This class is used to provide the directories where the downloads should be saved.
@@ -100,6 +103,43 @@ class DownloadProvider(
      */
     suspend fun findMangaDir(mangaTitle: String, source: Source): UniFile? = withContext(Dispatchers.IO) {
         findSourceDir(source)?.findFile(getMangaDirName(mangaTitle))
+    }
+
+    /**
+     * Returns the cover image file for a manga from its download directory if it exists.
+     *
+     * @param mangaTitle the title of the manga to query.
+     * @param source the source of the manga.
+     */
+    suspend fun findMangaCover(mangaTitle: String, source: Source): UniFile? = withContext(Dispatchers.IO) {
+        val mangaDir = findMangaDir(mangaTitle, source) ?: return@withContext null
+        mangaDir.listFiles()
+            ?.filter { it.isFile && (it.nameWithoutExtension?.equals("cover", ignoreCase = true) == true || it.nameWithoutExtension?.equals(".cover", ignoreCase = true) == true) }
+            ?.firstOrNull { ImageUtil.isImage(it.name) { it.openInputStream() } }
+    }
+
+    /**
+     * Saves the cover image to the manga's download directory if the directory exists.
+     *
+     * @param mangaTitle the title of the manga.
+     * @param source the source of the manga.
+     * @param inputStream the stream of the cover image.
+     */
+    suspend fun saveMangaCover(mangaTitle: String, source: Source, inputStream: InputStream): UniFile? = withContext(Dispatchers.IO) {
+        val mangaDir = getMangaDir(mangaTitle, source).getOrNull() ?: return@withContext null
+        val targetFile = mangaDir.findFile("cover.jpg") ?: mangaDir.createFile("cover.jpg") ?: return@withContext null
+        try {
+            inputStream.use { input ->
+                targetFile.openOutputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+            DiskUtil.createNoMediaFile(mangaDir, context)
+            targetFile
+        } catch (e: Exception) {
+            logcat(LogPriority.ERROR, e) { "Failed to save cover to manga directory" }
+            null
+        }
     }
 
     /**

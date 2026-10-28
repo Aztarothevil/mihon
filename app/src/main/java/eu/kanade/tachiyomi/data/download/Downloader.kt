@@ -47,6 +47,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import logcat.LogPriority
+import eu.kanade.tachiyomi.data.cache.CoverCache
 import mihon.core.archive.ZipWriter
 import mihon.core.metro.AppCoroutineScope
 import mihon.data.cache.ChapterCache
@@ -82,6 +83,7 @@ class Downloader(
     private val cache: DownloadCache,
     private val sourceManager: SourceManager,
     private val chapterCache: ChapterCache,
+    private val coverCache: CoverCache,
     private val downloadPreferences: DownloadPreferences,
     private val xml: XML,
     private val getCategories: GetCategories,
@@ -401,6 +403,21 @@ class Downloader(
         return false
     }
 
+    private suspend fun saveMangaCoverIfMissing(download: Download) {
+        try {
+            if (provider.findMangaCover(download.manga.title, download.source) == null) {
+                val coverFile = coverCache.getCoverFile(download.manga.thumbnailUrl)
+                if (coverFile?.exists() == true) {
+                    coverFile.inputStream().use { input ->
+                        provider.saveMangaCover(download.manga.title, download.source, input)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            logcat(LogPriority.WARN, e) { "Failed to save cover on download" }
+        }
+    }
+
     /**
      * Downloads a chapter.
      *
@@ -414,6 +431,8 @@ class Downloader(
             notifier.onError(e.message, download.chapter.name, download.manga.title, download.manga.id)
             return
         }
+
+        saveMangaCoverIfMissing(download)
 
         val availSpace = DiskUtil.getAvailableStorageSpace(mangaDir)
         if (availSpace != -1L && availSpace < MIN_DISK_SPACE) {
