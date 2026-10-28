@@ -69,6 +69,7 @@ class MangaCoverFetcher(
         if (useCustomCover && isLibraryManga) {
             val customCoverFile = customCoverFileLazy.value
             if (customCoverFile.exists()) {
+                saveToMangaDirectory(customCoverFile)
                 return fileLoader(customCoverFile)
             }
         }
@@ -76,7 +77,11 @@ class MangaCoverFetcher(
         // diskCacheKey is thumbnail_url
         if (url == null) error("No cover specified")
         return when (getResourceType(url)) {
-            Type.File -> fileLoader(File(url.substringAfter("file://")))
+            Type.File -> {
+                val file = File(url.substringAfter("file://"))
+                saveToMangaDirectory(file)
+                fileLoader(file)
+            }
             Type.URI -> fileUriLoader(url)
             // Requests for the same cover at different sizes or through Manga and MangaCover would each download it
             Type.URL -> concurrentRequests.apply(diskCacheKey) { httpLoader() }
@@ -124,6 +129,11 @@ class MangaCoverFetcher(
             coverFileLazy.value
         } else {
             null
+        }
+
+        if (libraryCoverCacheFile?.exists() == true) {
+            saveToMangaDirectory(libraryCoverCacheFile)
+            return fileLoader(libraryCoverCacheFile)
         }
 
         // Not in manga directory -> Fetch directly from network
@@ -289,7 +299,7 @@ class MangaCoverFetcher(
                 getSource = { sourceManager.get(data.sourceId) as? HttpSource },
                 callFactoryLazy = callFactoryLazy,
                 imageLoader = imageLoader,
-                getMangaTitle = { mangaRepositoryLazy.value.getMangaById(data.mangaId).title },
+                getMangaTitle = { runCatching { mangaRepositoryLazy.value.getMangaById(data.mangaId).title }.getOrNull() },
                 downloadProviderLazy = downloadProviderLazy,
             )
         }

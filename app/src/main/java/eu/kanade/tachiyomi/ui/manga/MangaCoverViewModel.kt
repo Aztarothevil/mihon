@@ -18,6 +18,7 @@ import dev.zacsweers.metrox.viewmodel.ManualViewModelAssistedFactory
 import dev.zacsweers.metrox.viewmodel.ManualViewModelAssistedFactoryKey
 import eu.kanade.domain.manga.interactor.UpdateManga
 import eu.kanade.tachiyomi.data.cache.CoverCache
+import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.data.saver.Image
 import eu.kanade.tachiyomi.data.saver.ImageSaver
 import eu.kanade.tachiyomi.data.saver.Location
@@ -37,6 +38,7 @@ import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.manga.interactor.GetManga
 import tachiyomi.domain.manga.model.Manga
+import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.i18n.MR
 import tachiyomi.source.local.image.LocalCoverManager
 import kotlin.time.Duration.Companion.seconds
@@ -49,6 +51,8 @@ class MangaCoverViewModel(
     private val coverCache: CoverCache,
     private val updateManga: UpdateManga,
     private val coverManager: LocalCoverManager,
+    private val downloadProvider: DownloadProvider,
+    private val sourceManager: SourceManager,
     val snackbarHostState: SnackbarHostState = SnackbarHostState(),
 ) : ViewModel() {
 
@@ -137,7 +141,7 @@ class MangaCoverViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             context.contentResolver.openInputStream(data)?.use {
                 try {
-                    manga.editCover(coverManager, it, updateManga, coverCache)
+                    manga.editCover(coverManager, it, updateManga, coverCache, downloadProvider, sourceManager)
                     notifyCoverUpdated(context)
                 } catch (e: Exception) {
                     notifyFailedCoverUpdate(context, e)

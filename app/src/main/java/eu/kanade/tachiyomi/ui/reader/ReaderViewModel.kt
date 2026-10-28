@@ -1023,7 +1023,7 @@ class ReaderViewModel(
         viewModelScope.launch {
             val result = appScope.async {
                 try {
-                    manga.editCover(coverManager, stream(), updateManga, coverCache)
+                    manga.editCover(coverManager, stream(), updateManga, coverCache, downloadProvider, sourceManager)
                     if (manga.isLocal() || manga.favorite) {
                         SetAsCoverResult.Success
                     } else {
