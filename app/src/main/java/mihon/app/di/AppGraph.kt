@@ -10,11 +10,9 @@ import eu.kanade.domain.base.BasePreferences
 import eu.kanade.domain.extension.interactor.TrustExtension
 import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.domain.track.interactor.AddTracks
-import eu.kanade.domain.track.service.DelayedTrackingUpdateWorker
 import eu.kanade.domain.track.service.TrackPreferences
 import eu.kanade.domain.ui.UiPreferences
 import eu.kanade.tachiyomi.App
-import eu.kanade.tachiyomi.core.security.PrivacyPreferences
 import eu.kanade.tachiyomi.core.security.SecurityPreferences
 import eu.kanade.tachiyomi.data.backup.create.BackupCreateWorker
 import eu.kanade.tachiyomi.data.backup.restore.BackupRestoreWorker
@@ -26,7 +24,6 @@ import eu.kanade.tachiyomi.data.library.LibraryUpdateWorker
 import eu.kanade.tachiyomi.data.library.MetadataUpdateWorker
 import eu.kanade.tachiyomi.data.notification.NotificationReceiver
 import eu.kanade.tachiyomi.data.track.TrackerManager
-import eu.kanade.tachiyomi.data.updater.AppUpdateChecker
 import eu.kanade.tachiyomi.extension.ExtensionManager
 import eu.kanade.tachiyomi.extension.util.ExtensionInstallActivity
 import eu.kanade.tachiyomi.network.JavaScriptEngine
@@ -71,7 +68,6 @@ interface AppGraph : ViewModelGraph {
     fun inject(metadataUpdateWorker: MetadataUpdateWorker)
     fun inject(backupRestoreWorker: BackupRestoreWorker)
     fun inject(backupCreateWorker: BackupCreateWorker)
-    fun inject(delayedTrackingUpdateWorker: DelayedTrackingUpdateWorker)
     fun inject(downloadWorker: DownloadWorker)
     fun inject(notificationReceiver: NotificationReceiver)
     fun inject(notificationReceiver: SecureActivityDelegateImpl)
@@ -90,15 +86,12 @@ interface AppGraph : ViewModelGraph {
     val trackPreferences: TrackPreferences
     val backupPreferences: BackupPreferences
     val storagePreferences: StoragePreferences
-    val privacyPreferences: PrivacyPreferences
     val securityPreferences: SecurityPreferences
     val downloadPreferences: DownloadPreferences
 
     val crashLogUtil: CrashLogUtil
 
     val downloadManager: DownloadManager
-
-    val updateChecker: AppUpdateChecker
 
     val trustExtension: TrustExtension
     val extensionStoreRepository: ExtensionStoreRepository

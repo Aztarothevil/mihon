@@ -93,15 +93,9 @@ class BackupNotifier(
         content: String = "",
         progress: Int = 0,
         maxAmount: Int = 100,
-        sync: Boolean = false,
     ): NotificationCompat.Builder {
         val builder = with(progressNotificationBuilder) {
-            val contentTitle = if (sync) {
-                context.stringResource(MR.strings.syncing_library)
-            } else {
-                context.stringResource(MR.strings.restoring_backup)
-            }
-            setContentTitle(contentTitle)
+            setContentTitle(context.stringResource(MR.strings.restoring_backup))
 
             if (!preferences.hideNotificationContent.get()) {
                 setContentText(content)
@@ -139,13 +133,8 @@ class BackupNotifier(
         errorCount: Int,
         path: String?,
         file: String?,
-        sync: Boolean,
     ) {
-        val contentTitle = if (sync) {
-            context.stringResource(MR.strings.library_sync_complete)
-        } else {
-            context.stringResource(MR.strings.restore_completed)
-        }
+        val contentTitle = context.stringResource(MR.strings.restore_completed)
 
         context.cancelNotification(Notifications.ID_RESTORE_PROGRESS)
 

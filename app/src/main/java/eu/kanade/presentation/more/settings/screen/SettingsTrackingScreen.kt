@@ -126,10 +126,6 @@ object SettingsTrackingScreen : SearchableSettings {
         }
 
         return listOf(
-            Preference.PreferenceItem.SwitchPreference(
-                preference = trackPreferences.autoUpdateTrack,
-                title = stringResource(MR.strings.pref_auto_update_manga_sync),
-            ),
             Preference.PreferenceItem.ListPreference(
                 preference = trackPreferences.autoUpdateTrackOnMarkRead,
                 entries = AutoTrackState.entries

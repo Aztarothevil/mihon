@@ -89,13 +89,11 @@ import eu.kanade.tachiyomi.ui.browse.source.globalsearch.GlobalSearchScreen
 import eu.kanade.tachiyomi.ui.deeplink.DeepLinkScreen
 import eu.kanade.tachiyomi.ui.home.HomeScreen
 import eu.kanade.tachiyomi.ui.manga.MangaScreen
-import eu.kanade.tachiyomi.ui.more.NewUpdateScreen
 import eu.kanade.tachiyomi.ui.more.OnboardingScreen
 import eu.kanade.tachiyomi.ui.setting.SettingsScreen
 import eu.kanade.tachiyomi.util.system.dpToPx
 import eu.kanade.tachiyomi.util.system.isBenchmarkBuildType
 import eu.kanade.tachiyomi.util.system.isNavigationBarNeedsScrim
-import eu.kanade.tachiyomi.util.system.updaterEnabled
 import eu.kanade.tachiyomi.util.view.setComposeContent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
@@ -122,7 +120,6 @@ import mihon.icons.materialsymbols.roundedfilled.VolunteerActivism
 import tachiyomi.core.common.Constants
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.library.service.LibraryPreferences
-import tachiyomi.domain.release.interactor.GetApplicationRelease
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.Scaffold
 import tachiyomi.presentation.core.components.material.padding
@@ -362,45 +359,6 @@ class MainActivity : BaseActivity() {
 
     @Composable
     private fun CheckForUpdates() {
-        val context = LocalContext.current
-        val navigator = LocalNavigator.currentOrThrow
-
-        // App updates
-        LaunchedEffect(Unit) {
-            if (!updaterEnabled) return@LaunchedEffect
-            var lastCheck: Long? = null
-            // The app can stay open for days now, so a cold start alone rarely checks.
-            // Elapsed realtime keeps counting while the device sleeps, unlike the monotonic clock.
-            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                while (true) {
-                    lastCheck?.let {
-                        delay(it + APP_UPDATE_CHECK_INTERVAL.inWholeMilliseconds - SystemClock.elapsedRealtime())
-                    }
-                    lastCheck = SystemClock.elapsedRealtime()
-                    try {
-                        val result = context.appGraph.updateChecker.checkForUpdate()
-                        if (
-                            result is GetApplicationRelease.Result.NewUpdate &&
-                            result.release.version != preferences.skippedAppUpdate.get() &&
-                            navigator.items.none { it is NewUpdateScreen }
-                        ) {
-                            val updateScreen = NewUpdateScreen(
-                                versionName = result.release.version,
-                                changelogInfo = result.release.info,
-                                releaseLink = result.release.releaseLink,
-                                downloadLink = result.release.downloadLink,
-                            )
-                            navigator.push(updateScreen)
-                        }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        logcat(LogPriority.ERROR, e)
-                    }
-                }
-            }
-        }
-
         // Extensions updates
         LaunchedEffect(Unit) {
             try {

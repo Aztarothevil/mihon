@@ -47,13 +47,11 @@ class BackupRestoreWorker(private val context: Context, workerParams: WorkerPara
             return Result.failure()
         }
 
-        val isSync = inputData.getBoolean(SYNC_KEY, false)
-
         setForegroundSafely()
 
         return try {
             withContext(Dispatchers.IO) {
-                backupRestorerFactory.create(notifier = notifier, isSync = isSync).restore(uri, options)
+                backupRestorerFactory.create(notifier = notifier).restore(uri, options)
             }
             Result.success()
         } catch (e: Exception) {
@@ -91,11 +89,9 @@ class BackupRestoreWorker(private val context: Context, workerParams: WorkerPara
             workManager: WorkManager,
             uri: Uri,
             options: RestoreOptions,
-            sync: Boolean = false,
         ) {
             val inputData = workDataOf(
                 LOCATION_URI_KEY to uri.toString(),
-                SYNC_KEY to sync,
                 OPTIONS_KEY to options.asBooleanArray(),
             )
             val request = OneTimeWorkRequestBuilder<BackupRestoreWorker>()
@@ -114,5 +110,4 @@ class BackupRestoreWorker(private val context: Context, workerParams: WorkerPara
 private const val TAG = "BackupRestore"
 
 private const val LOCATION_URI_KEY = "location_uri" // String
-private const val SYNC_KEY = "sync" // Boolean
 private const val OPTIONS_KEY = "options" // BooleanArray

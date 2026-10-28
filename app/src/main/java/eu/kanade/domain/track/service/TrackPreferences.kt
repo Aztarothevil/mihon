@@ -52,8 +52,6 @@ class TrackPreferences(
 
     val mangabakaScoreType: Preference<String> = preferenceStore.getString("mangabaka_score_type", MangaBaka.STEP_1)
 
-    val autoUpdateTrack: Preference<Boolean> = preferenceStore.getBoolean("pref_auto_update_manga_sync_key", true)
-
     val autoUpdateTrackOnMarkRead: Preference<AutoTrackState> = preferenceStore.getEnum(
         "pref_auto_update_manga_on_mark_read",
         AutoTrackState.ALWAYS,

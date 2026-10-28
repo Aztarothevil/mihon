@@ -43,7 +43,6 @@ import kotlin.concurrent.atomics.incrementAndFetch
 @AssistedInject
 class BackupRestorer(
     @Assisted private val notifier: BackupNotifier,
-    @Assisted private val isSync: Boolean,
     private val context: Context,
     private val downloadCache: DownloadCache,
     private val categoriesRestorer: CategoriesRestorer,
@@ -57,7 +56,7 @@ class BackupRestorer(
 
     @AssistedFactory
     fun interface Factory {
-        fun create(notifier: BackupNotifier, isSync: Boolean): BackupRestorer
+        fun create(notifier: BackupNotifier): BackupRestorer
     }
 
     private var restoreAmount = 0
@@ -92,7 +91,6 @@ class BackupRestorer(
             errors.size,
             logFile.parent,
             logFile.name,
-            isSync,
         )
     }
 
@@ -170,7 +168,6 @@ class BackupRestorer(
             context.stringResource(MR.strings.categories),
             progress,
             restoreAmount,
-            isSync,
         )
     }
 
@@ -212,7 +209,7 @@ class BackupRestorer(
                     }
                 }
 
-                notifier.showRestoreProgress(chunk.last().title, restoreProgress.load(), restoreAmount, isSync)
+                notifier.showRestoreProgress(chunk.last().title, restoreProgress.load(), restoreAmount)
             }
     }
 
@@ -233,7 +230,6 @@ class BackupRestorer(
             context.stringResource(MR.strings.app_settings),
             progress,
             restoreAmount,
-            isSync,
         )
     }
 
@@ -246,7 +242,6 @@ class BackupRestorer(
             context.stringResource(MR.strings.source_settings),
             progress,
             restoreAmount,
-            isSync,
         )
     }
 
@@ -271,7 +266,6 @@ class BackupRestorer(
                     context.stringResource(MR.strings.extensionStores),
                     restoreProgress.load(),
                     restoreAmount,
-                    isSync,
                 )
             }
     }

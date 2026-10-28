@@ -1054,7 +1054,6 @@ class ReaderViewModel(
      */
     private fun updateTrackChapterRead(readerChapter: ReaderChapter) {
         if (incognitoMode) return
-        if (!trackPreferences.autoUpdateTrack.get()) return
 
         val manga = manga ?: return
 
