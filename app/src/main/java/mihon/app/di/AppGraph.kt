@@ -12,6 +12,7 @@ import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.domain.track.interactor.AddTracks
 import eu.kanade.domain.track.service.TrackPreferences
 import eu.kanade.domain.ui.UiPreferences
+import eu.kanade.domain.manga.interactor.MigrateToLocal
 import eu.kanade.tachiyomi.App
 import eu.kanade.tachiyomi.core.security.SecurityPreferences
 import eu.kanade.tachiyomi.data.backup.create.BackupCreateWorker
@@ -104,6 +105,7 @@ interface AppGraph : ViewModelGraph {
     val coverCache: CoverCache
     val downloadCache: DownloadCache
     val localSourceSync: LocalSourceSync
+    val migrateToLocal: MigrateToLocal
 
     val json: Json
     val protoBuf: ProtoBuf

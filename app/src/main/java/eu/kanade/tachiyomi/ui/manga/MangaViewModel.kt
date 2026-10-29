@@ -25,6 +25,8 @@ import eu.kanade.core.util.insertSeparators
 import eu.kanade.domain.chapter.interactor.GetAvailableScanlators
 import eu.kanade.domain.chapter.interactor.SetReadStatus
 import eu.kanade.domain.manga.interactor.GetExcludedScanlators
+import eu.kanade.domain.manga.interactor.MigrateToFinished
+import eu.kanade.domain.manga.interactor.MigrateToLocal
 import eu.kanade.domain.manga.interactor.SetExcludedScanlators
 import eu.kanade.domain.manga.interactor.UpdateManga
 import eu.kanade.domain.manga.model.chaptersFiltered
@@ -139,6 +141,8 @@ class MangaViewModel(
     private val sourceManager: SourceManager,
     private val refreshTracks: RefreshTracks,
     private val coverCache: CoverCache,
+    private val migrateToLocal: MigrateToLocal,
+    private val migrateToFinished: MigrateToFinished,
 ) : ViewModel() {
 
     private val subscriberGate = SubscriberGate()
@@ -502,6 +506,44 @@ class MangaViewModel(
     private fun deleteDownloads() {
         val state = successState ?: return
         appScope.launch { downloadManager.deleteManga(state.manga, state.source) }
+    }
+
+    fun migrateToFinished(context: Context, onSuccess: () -> Unit = {}) {
+        val state = successState ?: return
+        viewModelScope.launch {
+            when (val result = migrateToFinished.await(state.manga)) {
+                is MigrateToFinished.Result.Success -> {
+                    context.toast("Migrado a Finished correctamente")
+                    onSuccess()
+                }
+                is MigrateToFinished.Result.AlreadyLocal -> {
+                    context.toast("El manga ya está en Finished")
+                }
+                is MigrateToFinished.Result.Error -> {
+                    logcat(LogPriority.ERROR, result.error) { "Failed to migrate manga to finished" }
+                    context.toast("Error al migrar a Finished")
+                }
+            }
+        }
+    }
+
+    fun migrateToLocal(context: Context, onSuccess: () -> Unit = {}) {
+        val state = successState ?: return
+        viewModelScope.launch {
+            when (val result = migrateToLocal.await(state.manga)) {
+                is MigrateToLocal.Result.Success -> {
+                    context.toast("Migrado a Local correctamente")
+                    onSuccess()
+                }
+                is MigrateToLocal.Result.AlreadyLocal -> {
+                    context.toast("El manga ya es Local")
+                }
+                is MigrateToLocal.Result.Error -> {
+                    logcat(LogPriority.ERROR, result.error) { "Failed to migrate manga to local" }
+                    context.toast("Error al migrar a Local")
+                }
+            }
+        }
     }
 
     /**

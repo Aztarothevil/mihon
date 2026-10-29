@@ -17,13 +17,18 @@ class LocalSourceFileSystem(
     }
 
     fun getFilesInBaseDirectory(): List<UniFile> {
-        return getBaseDirectory()?.listFiles().orEmpty().toList()
+        val localFiles = getBaseDirectory()?.listFiles().orEmpty().toList()
+        val finishedFiles = storageManager.getFinishedSourceDirectory()?.listFiles().orEmpty().toList()
+        return (localFiles + finishedFiles).distinctBy { it.name?.lowercase() }
     }
 
     fun getMangaDirectory(name: String): UniFile? {
-        val baseDir = getBaseDirectory() ?: return null
-        return baseDir.findFile(name)?.takeIf { it.isDirectory }
-            ?: baseDir.listFiles().orEmpty().firstOrNull { it.isDirectory && it.name?.equals(name, ignoreCase = true) == true }
+        val localDir = getBaseDirectory()?.findFile(name)?.takeIf { it.isDirectory }
+            ?: getBaseDirectory()?.listFiles().orEmpty().firstOrNull { it.isDirectory && it.name?.equals(name, ignoreCase = true) == true }
+        if (localDir != null) return localDir
+
+        return storageManager.getFinishedSourceDirectory()?.findFile(name)?.takeIf { it.isDirectory }
+            ?: storageManager.getFinishedSourceDirectory()?.listFiles().orEmpty().firstOrNull { it.isDirectory && it.name?.equals(name, ignoreCase = true) == true }
     }
 
     fun getFilesInMangaDirectory(name: String): List<UniFile> {

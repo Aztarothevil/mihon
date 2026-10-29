@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.ui.main
 
 import android.animation.ValueAnimator
+import eu.kanade.domain.manga.interactor.SyncFinishedDirectory
 import android.app.SearchManager
 import android.app.assist.AssistContent
 import android.content.Context
@@ -154,6 +155,8 @@ class MainActivity : BaseActivity() {
 
     @Inject private lateinit var extensionManager: ExtensionManager
 
+    @Inject private lateinit var syncFinishedDirectory: SyncFinishedDirectory
+
     // To be checked by splash screen. If true then splash screen will be removed.
     var ready = false
 
@@ -175,6 +178,7 @@ class MainActivity : BaseActivity() {
         lifecycleScope.launch {
             Migrator.awaitAndRelease()
             isAppMigrating.value = false
+            syncFinishedDirectory.await()
         }
         // Uncaught on purpose: a failed database migration otherwise leaves the migrating screen up for good,
         // while the crash screen tells what went wrong and lets the logs be shared

@@ -17,6 +17,7 @@ import tachiyomi.domain.category.interactor.SetMangaCategories
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.manga.repository.MangaRepository
 import tachiyomi.domain.source.service.SourceManager
+import tachiyomi.domain.storage.service.StorageManager
 import tachiyomi.source.local.LocalSource
 import tachiyomi.source.local.io.LocalSourceFileSystem
 
@@ -31,6 +32,7 @@ class LocalSourceSync(
     private val sourceManager: SourceManager,
     private val syncChaptersWithSource: SyncChaptersWithSource,
     private val localSourceFileSystem: LocalSourceFileSystem,
+    private val storageManager: StorageManager,
 ) {
 
     suspend fun await() = withContext(Dispatchers.IO) {
@@ -47,7 +49,8 @@ class LocalSourceSync(
 
             // 2. Get local source and local manga folders
             val localSource = sourceManager.get(LocalSource.ID) as? LocalSource ?: return@withContext
-            val mangaDirs = localSourceFileSystem.getFilesInBaseDirectory()
+            val localDir = storageManager.getLocalSourceDirectory() ?: return@withContext
+            val mangaDirs = localDir.listFiles().orEmpty()
                 .filter { it.isDirectory && !it.name.orEmpty().startsWith('.') }
 
             if (mangaDirs.isEmpty()) return@withContext

@@ -48,6 +48,7 @@ import eu.kanade.tachiyomi.ui.manga.notes.MangaNotesScreen
 import eu.kanade.tachiyomi.ui.manga.track.TrackInfoDialogHomeScreen
 import eu.kanade.tachiyomi.ui.reader.ReaderActivity
 import eu.kanade.tachiyomi.ui.setting.SettingsScreen
+import tachiyomi.source.local.isLocal
 import eu.kanade.tachiyomi.ui.webview.WebViewScreen
 import eu.kanade.tachiyomi.util.system.copyToClipboard
 import eu.kanade.tachiyomi.util.system.toShareIntent
@@ -160,6 +161,16 @@ class MangaScreen(
             onMigrateClicked = {
                 navigator.push(MigrationConfigScreen(successState.manga.id))
             }.takeIf { successState.manga.favorite },
+            onMigrateToFinishedClicked = {
+                viewModel.migrateToFinished(context) {
+                    navigator.popUntilRoot()
+                }
+            }.takeIf { !successState.manga.isLocal() },
+            onMigrateToLocalClicked = {
+                viewModel.migrateToLocal(context) {
+                    navigator.popUntilRoot()
+                }
+            }.takeIf { !successState.manga.isLocal() },
             onEditNotesClicked = { navigator.push(MangaNotesScreen(manga = successState.manga)) },
             onMultiBookmarkClicked = viewModel::bookmarkChapters,
             onMultiMarkAsReadClicked = viewModel::markChaptersRead,

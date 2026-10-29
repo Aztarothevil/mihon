@@ -368,6 +368,8 @@
     <string name="pref_library_update_refresh_metadata">Actualizar automáticamente los metadatos</string>
     <string name="action_display_comfortable_grid">Cuadrícula amplia</string>
     <string name="action_migrate">Migrar</string>
+    <string name="action_migrate_to_finished">Migrar a finished</string>
+    <string name="action_migrate_to_local">Migrar a local</string>
     <string name="tabs_header">Pestañas</string>
     <string name="action_display_show_tabs">Mostrar pestañas de categorías</string>
     <string name="page_list_empty_error">No se encontraron páginas</string>

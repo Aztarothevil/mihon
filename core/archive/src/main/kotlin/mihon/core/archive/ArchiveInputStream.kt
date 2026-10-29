@@ -8,7 +8,11 @@ import java.nio.ByteBuffer
 import kotlin.concurrent.Volatile
 import mihon.core.archive.ArchiveEntry as MihonArchiveEntry
 
-internal class ArchiveInputStream(buffer: Long, size: Long) : InputStream() {
+internal class ArchiveInputStream(
+    buffer: Long,
+    size: Long,
+    useStreamableZip: Boolean = false,
+) : InputStream() {
     private val lock = Any()
 
     @Volatile
@@ -19,8 +23,26 @@ internal class ArchiveInputStream(buffer: Long, size: Long) : InputStream() {
     init {
         try {
             Archive.setCharset(archive, Charsets.UTF_8.name().toByteArray())
-            Archive.readSupportFilterAll(archive)
-            Archive.readSupportFormatAll(archive)
+            runCatching { Archive.readSupportFilterAll(archive) }
+            if (useStreamableZip) {
+                runCatching { Archive.readSupportFormat7zip(archive) }
+                runCatching { Archive.readSupportFormatAr(archive) }
+                runCatching { Archive.readSupportFormatCab(archive) }
+                runCatching { Archive.readSupportFormatCpio(archive) }
+                runCatching { Archive.readSupportFormatEmpty(archive) }
+                runCatching { Archive.readSupportFormatIso9660(archive) }
+                runCatching { Archive.readSupportFormatLha(archive) }
+                runCatching { Archive.readSupportFormatMtree(archive) }
+                runCatching { Archive.readSupportFormatRar(archive) }
+                runCatching { Archive.readSupportFormatRar5(archive) }
+                runCatching { Archive.readSupportFormatRaw(archive) }
+                runCatching { Archive.readSupportFormatTar(archive) }
+                runCatching { Archive.readSupportFormatWarc(archive) }
+                runCatching { Archive.readSupportFormatXar(archive) }
+                runCatching { Archive.readSupportFormatZipStreamable(archive) }
+            } else {
+                runCatching { Archive.readSupportFormatAll(archive) }
+            }
             Archive.readOpenMemoryUnsafe(archive, buffer, size)
         } catch (e: ArchiveException) {
             close()
