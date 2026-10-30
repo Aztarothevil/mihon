@@ -25,9 +25,7 @@ fun DeleteLibraryMangaDialog(
         mutableStateOf(
             buildList<CheckboxState.State<StringResource>> {
                 add(CheckboxState.State.None(MR.strings.manga_from_library))
-                if (!containsLocalManga) {
-                    add(CheckboxState.State.None(MR.strings.downloaded_chapters))
-                }
+                add(CheckboxState.State.None(MR.strings.downloaded_chapters))
             },
         )
     }

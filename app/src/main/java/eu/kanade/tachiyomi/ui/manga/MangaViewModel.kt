@@ -105,6 +105,7 @@ import tachiyomi.domain.manga.model.applyFilter
 import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.domain.track.interactor.GetTracks
 import tachiyomi.i18n.MR
+import tachiyomi.source.local.io.LocalSourceFileSystem
 import tachiyomi.source.local.isLocal
 import kotlin.math.floor
 import kotlin.time.Duration.Companion.seconds
@@ -143,6 +144,7 @@ class MangaViewModel(
     private val coverCache: CoverCache,
     private val migrateToLocal: MigrateToLocal,
     private val migrateToFinished: MigrateToFinished,
+    private val localSourceFileSystem: LocalSourceFileSystem,
 ) : ViewModel() {
 
     private val subscriberGate = SubscriberGate()
@@ -419,6 +421,10 @@ class MangaViewModel(
                 // Remove from library
                 if (updateManga.awaitUpdateFavorite(manga.id, false)) {
                     manga.removeCovers(coverCache)
+                    if (manga.isLocal()) {
+                        localSourceFileSystem.getMangaDirectory(manga.url)?.delete()
+                            ?: localSourceFileSystem.getMangaDirectory(manga.title)?.delete()
+                    }
                     onRemoved()
                 }
             } else {
@@ -505,7 +511,14 @@ class MangaViewModel(
      */
     private fun deleteDownloads() {
         val state = successState ?: return
-        appScope.launch { downloadManager.deleteManga(state.manga, state.source) }
+        appScope.launch {
+            if (state.manga.isLocal()) {
+                localSourceFileSystem.getMangaDirectory(state.manga.url)?.delete()
+                    ?: localSourceFileSystem.getMangaDirectory(state.manga.title)?.delete()
+            } else {
+                downloadManager.deleteManga(state.manga, state.source)
+            }
+        }
     }
 
     fun migrateToFinished(context: Context, onSuccess: () -> Unit = {}) {

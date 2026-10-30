@@ -26,6 +26,7 @@ import tachiyomi.domain.chapter.interactor.GetChaptersByMangaId
 import tachiyomi.domain.chapter.interactor.UpdateChapter
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.chapter.model.ChapterUpdate
+import tachiyomi.domain.chapter.service.ChapterRecognition
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.manga.model.MangaUpdate
 import tachiyomi.domain.manga.repository.MangaRepository
@@ -114,9 +115,62 @@ class MigrateToLocal(
                         setOnlyAlertOnce(true)
                     }
 
-                    val matchedChapter = chapters.find { chapter ->
+                    val fileNameNoExt = file.nameWithoutExtension.orEmpty()
+                    val fileNameRaw = file.name.orEmpty()
+
+                    // 1. Try exact match using DownloadProvider valid dir names
+                    var matchedChapter = chapters.find { chapter ->
                         downloadProvider.getValidChapterDirNames(chapter.name, chapter.scanlator, chapter.url)
-                            .any { it.equals(file.nameWithoutExtension, ignoreCase = true) || it.equals(file.name, ignoreCase = true) }
+                            .any { it.equals(fileNameNoExt, ignoreCase = true) || it.equals(fileNameRaw, ignoreCase = true) }
+                    }
+
+                    // 2. Try matching chapter name or sanitized chapter name
+                    if (matchedChapter == null) {
+                        matchedChapter = chapters.find { chapter ->
+                            val validName = DiskUtil.buildValidFilename(chapter.name)
+                            fileNameNoExt.equals(chapter.name, ignoreCase = true) ||
+                                fileNameNoExt.equals(validName, ignoreCase = true)
+                        }
+                    }
+
+                    // 3. Try matching if fileNameNoExt ends with chapter name or sanitized chapter name
+                    if (matchedChapter == null) {
+                        matchedChapter = chapters.find { chapter ->
+                            val validName = DiskUtil.buildValidFilename(chapter.name)
+                            validName.isNotBlank() && (
+                                fileNameNoExt.endsWith("_$validName", ignoreCase = true) ||
+                                    fileNameNoExt.endsWith(" $validName", ignoreCase = true) ||
+                                    fileNameNoExt.endsWith("-$validName", ignoreCase = true) ||
+                                    fileNameNoExt.endsWith(validName, ignoreCase = true)
+                                )
+                        }
+                    }
+
+                    // 4. Try matching after stripping hash suffix (_xxxxxx) if present
+                    if (matchedChapter == null && fileNameNoExt.contains('_')) {
+                        val withoutHash = if (fileNameNoExt.length > 7 && fileNameNoExt[fileNameNoExt.length - 7] == '_') {
+                            fileNameNoExt.substring(0, fileNameNoExt.length - 7)
+                        } else {
+                            fileNameNoExt
+                        }
+                        matchedChapter = chapters.find { chapter ->
+                            val validName = DiskUtil.buildValidFilename(chapter.name)
+                            validName.isNotBlank() && (
+                                withoutHash.endsWith("_$validName", ignoreCase = true) ||
+                                    withoutHash.endsWith(" $validName", ignoreCase = true) ||
+                                    withoutHash.endsWith("-$validName", ignoreCase = true) ||
+                                    withoutHash.endsWith(validName, ignoreCase = true)
+                                )
+                        }
+                    }
+
+                    // 5. Try matching by chapter number using ChapterRecognition
+                    if (matchedChapter == null) {
+                        val fileChapterNumber = ChapterRecognition
+                            .parseChapterNumber(manga.title, fileNameNoExt, -1.0)
+                        if (fileChapterNumber >= 0) {
+                            matchedChapter = chapters.find { it.chapterNumber > 0 && it.chapterNumber == fileChapterNumber }
+                        }
                     }
 
                     val isArchive = file.name.orEmpty().endsWith(".cbz", ignoreCase = true) || file.name.orEmpty().endsWith(".zip", ignoreCase = true)
@@ -132,9 +186,16 @@ class MigrateToLocal(
 
                     val baseName = when {
                         matchedChapter != null && matchedChapter.name.isNotBlank() -> {
-                            DiskUtil.buildValidFilename(matchedChapter.name).ifBlank { file.nameWithoutExtension.orEmpty() }
+                            DiskUtil.buildValidFilename(matchedChapter.name).ifBlank { fileNameNoExt }
                         }
-                        file.nameWithoutExtension.orEmpty().isNotBlank() -> file.nameWithoutExtension.orEmpty()
+                        fileNameNoExt.isNotBlank() -> {
+                            val cleanName = if (fileNameNoExt.contains('_')) {
+                                fileNameNoExt.substringAfter('_').ifBlank { fileNameNoExt }
+                            } else {
+                                fileNameNoExt
+                            }
+                            DiskUtil.buildValidFilename(cleanName).ifBlank { "Chapter_$chapterNumberStr" }
+                        }
                         else -> "Chapter_$chapterNumberStr"
                     }
 
@@ -151,6 +212,7 @@ class MigrateToLocal(
                         chapterToOldChapterMap[newChapterDirName] = matchedChapter
                         chapterToOldChapterMap[candidateName.removeSuffix(ext)] = matchedChapter
                         chapterToOldChapterMap[matchedChapter.name] = matchedChapter
+                        chapterToOldChapterMap[DiskUtil.buildValidFilename(matchedChapter.name)] = matchedChapter
                     }
 
                     moveUniFile(file, targetMangaDir, newChapterDirName)

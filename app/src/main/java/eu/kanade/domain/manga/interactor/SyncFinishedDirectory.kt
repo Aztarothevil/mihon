@@ -5,7 +5,9 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import eu.kanade.domain.chapter.interactor.SyncChaptersWithSource
 import eu.kanade.domain.manga.model.toSManga
+import eu.kanade.tachiyomi.util.storage.DiskUtil
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlin.time.Clock
 import logcat.LogPriority
@@ -55,6 +57,14 @@ class SyncFinishedDirectory(
             for (mangaDir in mangaDirs) {
                 val title = mangaDir.name ?: continue
                 var localManga = mangaRepository.getMangaByUrlAndSourceId(title, LocalSource.ID)
+                if (localManga == null) {
+                    val favorites = mangaRepository.getFavoritesBySourceId(LocalSource.ID).first()
+                    localManga = favorites.firstOrNull {
+                        it.url.equals(title, ignoreCase = true) ||
+                            DiskUtil.buildValidFilename(it.url).equals(title, ignoreCase = true) ||
+                            DiskUtil.buildValidFilename(it.title).equals(title, ignoreCase = true)
+                    }
+                }
                 if (localManga == null) {
                     val newLocalManga = Manga.create().copy(
                         url = title,

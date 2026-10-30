@@ -6,9 +6,11 @@ import dev.zacsweers.metro.SingleIn
 import eu.kanade.domain.chapter.interactor.SyncChaptersWithSource
 import eu.kanade.domain.manga.interactor.UpdateManga
 import eu.kanade.domain.manga.model.toSManga
+import eu.kanade.tachiyomi.util.storage.DiskUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.time.Clock
+import kotlinx.coroutines.flow.first
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.category.interactor.CreateCategoryWithName
@@ -62,6 +64,14 @@ class LocalSourceSync(
 
                 // Find or insert manga
                 var manga = mangaRepository.getMangaByUrlAndSourceId(title, LocalSource.ID)
+                if (manga == null) {
+                    val favorites = mangaRepository.getFavoritesBySourceId(LocalSource.ID).first()
+                    manga = favorites.firstOrNull {
+                        it.url.equals(title, ignoreCase = true) ||
+                            DiskUtil.buildValidFilename(it.url).equals(title, ignoreCase = true) ||
+                            DiskUtil.buildValidFilename(it.title).equals(title, ignoreCase = true)
+                    }
+                }
                 if (manga == null) {
                     val newManga = Manga.create().copy(
                         url = title,

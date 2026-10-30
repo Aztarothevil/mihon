@@ -73,6 +73,7 @@ import tachiyomi.domain.manga.model.applyFilter
 import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.domain.track.interactor.GetTracksPerManga
 import tachiyomi.domain.track.model.Track
+import tachiyomi.source.local.io.LocalSourceFileSystem
 import tachiyomi.source.local.isLocal
 import kotlin.random.Random
 import kotlin.time.Duration.Companion.seconds
@@ -98,6 +99,7 @@ class LibraryViewModel(
     private val downloadManager: DownloadManager,
     private val downloadCache: DownloadCache,
     private val trackerManager: TrackerManager,
+    private val localSourceFileSystem: LocalSourceFileSystem,
 ) : ViewModel() {
 
     private val subscriberGate = SubscriberGate()
@@ -573,8 +575,13 @@ class LibraryViewModel(
                 updateManga.awaitAll(toDelete)
             }
 
-            if (deleteChapters) {
-                mangas.forEach { manga ->
+            mangas.forEach { manga ->
+                if (manga.isLocal()) {
+                    if (deleteFromLibrary || deleteChapters) {
+                        localSourceFileSystem.getMangaDirectory(manga.url)?.delete()
+                            ?: localSourceFileSystem.getMangaDirectory(manga.title)?.delete()
+                    }
+                } else if (deleteChapters) {
                     val source = sourceManager.get(manga.source) as? HttpSource
                     if (source != null) {
                         downloadManager.deleteManga(manga, source)
