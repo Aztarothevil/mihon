@@ -48,6 +48,9 @@ class DownloadProvider(
     private val tempDir: UniFile?
         get() = storageManager.getTempDirectory()
 
+    private val dropDir: UniFile?
+        get() = storageManager.getDropDirectory()
+
     /**
      * Returns the download directory for a manga. For internal use only.
      *
@@ -101,6 +104,8 @@ class DownloadProvider(
             ?: downloadsDir?.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(sourceDirName, ignoreCase = true) == true }
             ?: tempDir?.findFile(sourceDirName)
             ?: tempDir?.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(sourceDirName, ignoreCase = true) == true }
+            ?: dropDir?.findFile(sourceDirName)
+            ?: dropDir?.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(sourceDirName, ignoreCase = true) == true }
     }
 
     /**
@@ -122,8 +127,15 @@ class DownloadProvider(
 
         val tempSourceDir = tempDir?.findFile(sourceDirName)
             ?: tempDir?.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(sourceDirName, ignoreCase = true) == true }
-        tempSourceDir?.findFile(mangaDirName)
+        val tempMangaDir = tempSourceDir?.findFile(mangaDirName)
             ?: tempSourceDir?.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(mangaDirName, ignoreCase = true) == true }
+
+        if (tempMangaDir != null) return@withContext tempMangaDir
+
+        val dropSourceDir = dropDir?.findFile(sourceDirName)
+            ?: dropDir?.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(sourceDirName, ignoreCase = true) == true }
+        dropSourceDir?.findFile(mangaDirName)
+            ?: dropSourceDir?.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(mangaDirName, ignoreCase = true) == true }
     }
 
     /**

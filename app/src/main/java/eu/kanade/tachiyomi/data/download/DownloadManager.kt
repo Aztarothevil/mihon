@@ -32,7 +32,9 @@ import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.download.service.DownloadPreferences
 import tachiyomi.domain.manga.interactor.GetManga
 import tachiyomi.domain.manga.model.Manga
+import eu.kanade.tachiyomi.util.storage.DiskUtil
 import tachiyomi.domain.source.service.SourceManager
+import tachiyomi.domain.manga.repository.MangaRepository
 import tachiyomi.domain.storage.service.StorageManager
 import tachiyomi.i18n.MR
 import tachiyomi.source.local.isLocal
@@ -56,6 +58,7 @@ class DownloadManager(
     private val downloader: Downloader,
     private val pendingDeleter: DownloadPendingDeleter,
     private val storageManager: StorageManager,
+    private val mangaRepository: MangaRepository,
 ) {
 
     val queueState
@@ -496,39 +499,119 @@ class DownloadManager(
     suspend fun moveTempDownloadsToFinal(manga: Manga) = withContext(Dispatchers.IO) {
         if (manga.isLocal()) return@withContext
         val source = sourceManager.get(manga.source) ?: return@withContext
-        val tempDir = storageManager.getTempDirectory() ?: return@withContext
         val downloadsDir = storageManager.getDownloadsDirectory() ?: return@withContext
-
         val sourceDirName = provider.getSourceDirName(source)
-        val tempSourceDir = tempDir.findFile(sourceDirName)
-            ?: tempDir.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(sourceDirName, ignoreCase = true) == true }
-            ?: return@withContext
-
         val mangaDirName = provider.getMangaDirName(manga.title)
-        val tempMangaDir = tempSourceDir.findFile(mangaDirName)
-            ?: tempSourceDir.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(mangaDirName, ignoreCase = true) == true }
-            ?: return@withContext
 
-        if (!tempMangaDir.exists() || !tempMangaDir.isDirectory) return@withContext
+        val pendingDirs = listOfNotNull(storageManager.getTempDirectory(), storageManager.getDropDirectory())
 
-        val targetSourceDir = downloadsDir.createDirectory(sourceDirName) ?: return@withContext
-        val targetMangaDir = targetSourceDir.createDirectory(mangaDirName) ?: return@withContext
+        pendingDirs.forEach { basePendingDir ->
+            val pendingSourceDir = basePendingDir.findFile(sourceDirName)
+                ?: basePendingDir.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(sourceDirName, ignoreCase = true) == true }
+                ?: return@forEach
 
-        tempMangaDir.listFiles().orEmpty().forEach { child ->
-            moveUniFile(child, targetMangaDir, child.name.orEmpty())
+            val pendingMangaDir = pendingSourceDir.findFile(mangaDirName)
+                ?: pendingSourceDir.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(mangaDirName, ignoreCase = true) == true }
+                ?: return@forEach
+
+            if (!pendingMangaDir.exists() || !pendingMangaDir.isDirectory) return@forEach
+
+            val targetSourceDir = downloadsDir.createDirectory(sourceDirName) ?: return@forEach
+            val targetMangaDir = targetSourceDir.createDirectory(mangaDirName) ?: return@forEach
+
+            pendingMangaDir.listFiles().orEmpty().forEach { child ->
+                moveUniFile(child, targetMangaDir, child.name.orEmpty())
+            }
+
+            try {
+                pendingMangaDir.delete()
+            } catch (_: Exception) {}
+
+            if (pendingSourceDir.listFiles().orEmpty().isEmpty()) {
+                try {
+                    pendingSourceDir.delete()
+                } catch (_: Exception) {}
+            }
         }
-
-        try {
-            tempMangaDir.delete()
-        } catch (_: Exception) {}
 
         cache.invalidateCache()
     }
 
+    suspend fun moveNonLibraryDownloadsToDrop() = withContext(Dispatchers.IO) {
+        val downloadsDir = storageManager.getDownloadsDirectory() ?: return@withContext
+        val dropDir = storageManager.getDropDirectory() ?: return@withContext
+
+        val downloadSourceDirs = downloadsDir.listFiles().orEmpty().filter { it.isDirectory && !it.name.isNullOrBlank() }
+        if (downloadSourceDirs.isEmpty()) return@withContext
+
+        val libraryFavorites = try {
+            mangaRepository.getFavorites()
+        } catch (_: Exception) {
+            emptyList()
+        }
+
+        val favoriteMangaKeys = mutableSetOf<String>()
+        val favoriteMangaTitles = mutableSetOf<String>()
+
+        libraryFavorites.forEach { manga ->
+            val source = sourceManager.getOrStub(manga.source)
+            val sourceDirName = provider.getSourceDirName(source).lowercase()
+            val mangaDirName = provider.getMangaDirName(manga.title).lowercase()
+            favoriteMangaKeys.add("$sourceDirName/$mangaDirName")
+            favoriteMangaTitles.add(manga.title.lowercase())
+            favoriteMangaTitles.add(DiskUtil.buildValidFilename(manga.title).lowercase())
+            favoriteMangaTitles.add(mangaDirName)
+        }
+
+        var filesMoved = false
+
+        downloadSourceDirs.forEach { sourceDir ->
+            val sourceDirName = sourceDir.name.orEmpty()
+            val sourceDirNameLower = sourceDirName.lowercase()
+
+            val mangaDirs = sourceDir.listFiles().orEmpty().filter { it.isDirectory && !it.name.isNullOrBlank() }
+            mangaDirs.forEach { mangaDir ->
+                val mangaDirName = mangaDir.name.orEmpty()
+                val mangaDirNameLower = mangaDirName.lowercase()
+                val key = "$sourceDirNameLower/$mangaDirNameLower"
+
+                val isFavorite = key in favoriteMangaKeys ||
+                    mangaDirNameLower in favoriteMangaTitles ||
+                    DiskUtil.buildValidFilename(mangaDirNameLower) in favoriteMangaTitles
+
+                if (!isFavorite) {
+                    val targetSourceDir = dropDir.createDirectory(sourceDirName)
+                    if (targetSourceDir != null) {
+                        val targetMangaDir = targetSourceDir.createDirectory(mangaDirName)
+                        if (targetMangaDir != null) {
+                            mangaDir.listFiles().orEmpty().forEach { child ->
+                                moveUniFile(child, targetMangaDir, child.name.orEmpty())
+                            }
+                            try {
+                                mangaDir.delete()
+                            } catch (_: Exception) {}
+                            filesMoved = true
+                        }
+                    }
+                }
+            }
+
+            if (sourceDir.listFiles().orEmpty().isEmpty()) {
+                try {
+                    sourceDir.delete()
+                } catch (_: Exception) {}
+            }
+        }
+
+        if (filesMoved) {
+            cache.invalidateCache()
+        }
+    }
+
     private fun moveUniFile(sourceFile: UniFile, targetDir: UniFile, newName: String) {
         try {
-            val destination = targetDir.createFile(newName) ?: targetDir.createDirectory(newName) ?: return
             if (sourceFile.isFile) {
+                val destination = targetDir.findFile(newName) ?: targetDir.createFile(newName) ?: return
                 sourceFile.openInputStream().use { input ->
                     destination.openOutputStream().use { output ->
                         input.copyTo(output)
@@ -536,13 +619,16 @@ class DownloadManager(
                 }
                 sourceFile.delete()
             } else if (sourceFile.isDirectory) {
+                val destination = targetDir.findFile(newName)?.takeIf { it.isDirectory }
+                    ?: targetDir.createDirectory(newName)
+                    ?: return
                 sourceFile.listFiles().orEmpty().forEach { child ->
                     moveUniFile(child, destination, child.name.orEmpty())
                 }
                 sourceFile.delete()
             }
         } catch (e: Exception) {
-            logcat(LogPriority.ERROR, e) { "Failed to move temp file ${sourceFile.name} to $newName" }
+            logcat(LogPriority.ERROR, e) { "Failed to move file ${sourceFile.name} to $newName" }
         }
     }
 }

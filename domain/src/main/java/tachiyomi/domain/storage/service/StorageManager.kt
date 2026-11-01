@@ -61,6 +61,9 @@ class StorageManager(
             parent.createDirectory(TEMP_PATH).also {
                 DiskUtil.createNoMediaFile(it, context)
             }
+            parent.createDirectory(DROP_PATH).also {
+                DiskUtil.createNoMediaFile(it, context)
+            }
             parent.createDirectory(DOWNLOADS_PATH).also {
                 DiskUtil.createNoMediaFile(it, context)
             }
@@ -84,6 +87,10 @@ class StorageManager(
         return getChildDirectory(TEMP_PATH)
     }
 
+    fun getDropDirectory(): UniFile? {
+        return getChildDirectory(DROP_PATH)
+    }
+
     fun getLocalSourceDirectory(): UniFile? {
         return getChildDirectory(LOCAL_SOURCE_PATH)
     }
@@ -104,5 +111,6 @@ class StorageManager(
 private const val AUTOMATIC_BACKUPS_PATH = "autobackup"
 private const val DOWNLOADS_PATH = "downloads"
 private const val TEMP_PATH = "temp"
+private const val DROP_PATH = "drop"
 private const val LOCAL_SOURCE_PATH = "local"
 private const val FINISHED_SOURCE_PATH = "finished"

@@ -328,6 +328,7 @@ class MainActivity : BaseActivity() {
         if (isLaunch) {
             lifecycleScope.launch(Dispatchers.IO) {
                 graph.localSourceSync.await()
+                graph.downloadManager.moveNonLibraryDownloadsToDrop()
             }
             if (libraryPreferences.autoClearChapterCache.get()) {
                 lifecycleScope.launch { chapterCache.clear() }

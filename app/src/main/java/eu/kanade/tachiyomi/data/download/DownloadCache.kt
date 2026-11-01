@@ -407,11 +407,13 @@ class DownloadCache(
             rootDownloadsDirMutex.withLock {
                 val downloadsDir = storageManager.getDownloadsDirectory()
                 val tempDir = storageManager.getTempDirectory()
+                val dropDir = storageManager.getDropDirectory()
                 val updatedRootDir = RootDirectory(downloadsDir)
 
                 val downloadSourceFiles = downloadsDir?.listFiles().orEmpty().toList()
                 val tempSourceFiles = tempDir?.listFiles().orEmpty().toList()
-                val allSourceFiles = (downloadSourceFiles + tempSourceFiles)
+                val dropSourceFiles = dropDir?.listFiles().orEmpty().toList()
+                val allSourceFiles = (downloadSourceFiles + tempSourceFiles + dropSourceFiles)
                     .filter { it.isDirectory && !it.name.isNullOrBlank() }
 
                 updatedRootDir.sourceDirs = allSourceFiles
@@ -426,10 +428,12 @@ class DownloadCache(
                         val sourceDirName = sourceDir.dir?.name?.lowercase().orEmpty()
                         val downloadsSourceDir = downloadsDir?.listFiles().orEmpty().firstOrNull { it.name?.equals(sourceDirName, ignoreCase = true) == true }
                         val tempSourceDir = tempDir?.listFiles().orEmpty().firstOrNull { it.name?.equals(sourceDirName, ignoreCase = true) == true }
+                        val dropSourceDir = dropDir?.listFiles().orEmpty().firstOrNull { it.name?.equals(sourceDirName, ignoreCase = true) == true }
 
                         val downloadMangaFiles = downloadsSourceDir?.listFiles().orEmpty().toList()
                         val tempMangaFiles = tempSourceDir?.listFiles().orEmpty().toList()
-                        val allMangaFiles = (downloadMangaFiles + tempMangaFiles)
+                        val dropMangaFiles = dropSourceDir?.listFiles().orEmpty().toList()
+                        val allMangaFiles = (downloadMangaFiles + tempMangaFiles + dropMangaFiles)
                             .filter { it.isDirectory && !it.name.isNullOrBlank() }
 
                         sourceDir.mangaDirs = allMangaFiles
