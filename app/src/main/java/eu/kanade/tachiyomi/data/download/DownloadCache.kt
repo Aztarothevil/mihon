@@ -405,10 +405,16 @@ class DownloadCache(
             val sourceIdsByDirName = sources.groupBy({ provider.getSourceDirName(it).lowercase() }, { it.id })
 
             rootDownloadsDirMutex.withLock {
-                val updatedRootDir = RootDirectory(storageManager.getDownloadsDirectory())
+                val downloadsDir = storageManager.getDownloadsDirectory()
+                val tempDir = storageManager.getTempDirectory()
+                val updatedRootDir = RootDirectory(downloadsDir)
 
-                updatedRootDir.sourceDirs = updatedRootDir.dir?.listFiles().orEmpty()
+                val downloadSourceFiles = downloadsDir?.listFiles().orEmpty().toList()
+                val tempSourceFiles = tempDir?.listFiles().orEmpty().toList()
+                val allSourceFiles = (downloadSourceFiles + tempSourceFiles)
                     .filter { it.isDirectory && !it.name.isNullOrBlank() }
+
+                updatedRootDir.sourceDirs = allSourceFiles
                     .flatMap { dir ->
                         val sourceDir = SourceDirectory(dir)
                         sourceIdsByDirName[dir.name!!.lowercase()].orEmpty().map { it to sourceDir }
@@ -417,8 +423,16 @@ class DownloadCache(
 
                 updatedRootDir.sourceDirs.values.distinct().map { sourceDir ->
                     async {
-                        sourceDir.mangaDirs = sourceDir.dir?.listFiles().orEmpty()
+                        val sourceDirName = sourceDir.dir?.name?.lowercase().orEmpty()
+                        val downloadsSourceDir = downloadsDir?.listFiles().orEmpty().firstOrNull { it.name?.equals(sourceDirName, ignoreCase = true) == true }
+                        val tempSourceDir = tempDir?.listFiles().orEmpty().firstOrNull { it.name?.equals(sourceDirName, ignoreCase = true) == true }
+
+                        val downloadMangaFiles = downloadsSourceDir?.listFiles().orEmpty().toList()
+                        val tempMangaFiles = tempSourceDir?.listFiles().orEmpty().toList()
+                        val allMangaFiles = (downloadMangaFiles + tempMangaFiles)
                             .filter { it.isDirectory && !it.name.isNullOrBlank() }
+
+                        sourceDir.mangaDirs = allMangaFiles
                             .associate { it.name!! to MangaDirectory(it) }
 
                         sourceDir.mangaDirs.values.forEach { mangaDir ->

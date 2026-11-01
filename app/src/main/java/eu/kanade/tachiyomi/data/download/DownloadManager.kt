@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.data.download
 
 import android.content.Context
+import com.hippo.unifile.UniFile
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
@@ -32,7 +33,9 @@ import tachiyomi.domain.download.service.DownloadPreferences
 import tachiyomi.domain.manga.interactor.GetManga
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.source.service.SourceManager
+import tachiyomi.domain.storage.service.StorageManager
 import tachiyomi.i18n.MR
+import tachiyomi.source.local.isLocal
 
 /**
  * This class is used to manage chapter downloads in the application. It must be instantiated once
@@ -52,6 +55,7 @@ class DownloadManager(
     private val downloadPreferences: DownloadPreferences,
     private val downloader: Downloader,
     private val pendingDeleter: DownloadPendingDeleter,
+    private val storageManager: StorageManager,
 ) {
 
     val queueState
@@ -418,12 +422,7 @@ class DownloadManager(
     suspend fun renameChapter(source: Source, manga: Manga, oldChapter: Chapter, newChapter: Chapter) =
         withContext(Dispatchers.IO) {
             val oldNames = provider.getValidChapterDirNames(oldChapter.name, oldChapter.scanlator, oldChapter.url)
-            val mangaDir = provider.getMangaDir(manga.title, source).getOrElse { e ->
-                logcat(LogPriority.ERROR, e) {
-                    "Manga download folder doesn't exist. Skipping renaming after source sync"
-                }
-                return@withContext
-            }
+            val mangaDir = provider.findMangaDir(manga.title, source) ?: return@withContext
 
             // Assume there's only 1 version of the chapter name formats present
             val oldDownload = oldNames.asSequence()
@@ -493,4 +492,57 @@ class DownloadManager(
                     .asFlow(),
             )
         }
+
+    suspend fun moveTempDownloadsToFinal(manga: Manga) = withContext(Dispatchers.IO) {
+        if (manga.isLocal()) return@withContext
+        val source = sourceManager.get(manga.source) ?: return@withContext
+        val tempDir = storageManager.getTempDirectory() ?: return@withContext
+        val downloadsDir = storageManager.getDownloadsDirectory() ?: return@withContext
+
+        val sourceDirName = provider.getSourceDirName(source)
+        val tempSourceDir = tempDir.findFile(sourceDirName)
+            ?: tempDir.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(sourceDirName, ignoreCase = true) == true }
+            ?: return@withContext
+
+        val mangaDirName = provider.getMangaDirName(manga.title)
+        val tempMangaDir = tempSourceDir.findFile(mangaDirName)
+            ?: tempSourceDir.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(mangaDirName, ignoreCase = true) == true }
+            ?: return@withContext
+
+        if (!tempMangaDir.exists() || !tempMangaDir.isDirectory) return@withContext
+
+        val targetSourceDir = downloadsDir.createDirectory(sourceDirName) ?: return@withContext
+        val targetMangaDir = targetSourceDir.createDirectory(mangaDirName) ?: return@withContext
+
+        tempMangaDir.listFiles().orEmpty().forEach { child ->
+            moveUniFile(child, targetMangaDir, child.name.orEmpty())
+        }
+
+        try {
+            tempMangaDir.delete()
+        } catch (_: Exception) {}
+
+        cache.invalidateCache()
+    }
+
+    private fun moveUniFile(sourceFile: UniFile, targetDir: UniFile, newName: String) {
+        try {
+            val destination = targetDir.createFile(newName) ?: targetDir.createDirectory(newName) ?: return
+            if (sourceFile.isFile) {
+                sourceFile.openInputStream().use { input ->
+                    destination.openOutputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                sourceFile.delete()
+            } else if (sourceFile.isDirectory) {
+                sourceFile.listFiles().orEmpty().forEach { child ->
+                    moveUniFile(child, destination, child.name.orEmpty())
+                }
+                sourceFile.delete()
+            }
+        } catch (e: Exception) {
+            logcat(LogPriority.ERROR, e) { "Failed to move temp file ${sourceFile.name} to $newName" }
+        }
+    }
 }

@@ -41,22 +41,30 @@ class StorageManager(
         .shareIn(scope, SharingStarted.Lazily, 1)
 
     init {
+        createDefaultDirectories()
         storagePreferences.baseStorageDirectory.changes()
             .drop(1)
             .distinctUntilChanged()
             .onEach { uri ->
                 baseDirLazy = lazyOf(getBaseDir(uri))
-                baseDir?.let { parent ->
-                    parent.createDirectory(AUTOMATIC_BACKUPS_PATH)
-                    parent.createDirectory(LOCAL_SOURCE_PATH)
-                    parent.createDirectory(FINISHED_SOURCE_PATH)
-                    parent.createDirectory(DOWNLOADS_PATH).also {
-                        DiskUtil.createNoMediaFile(it, context)
-                    }
-                }
+                createDefaultDirectories()
                 _changes.send(Unit)
             }
             .launchIn(scope)
+    }
+
+    private fun createDefaultDirectories() {
+        baseDir?.let { parent ->
+            parent.createDirectory(AUTOMATIC_BACKUPS_PATH)
+            parent.createDirectory(LOCAL_SOURCE_PATH)
+            parent.createDirectory(FINISHED_SOURCE_PATH)
+            parent.createDirectory(TEMP_PATH).also {
+                DiskUtil.createNoMediaFile(it, context)
+            }
+            parent.createDirectory(DOWNLOADS_PATH).also {
+                DiskUtil.createNoMediaFile(it, context)
+            }
+        }
     }
 
     private fun getBaseDir(uri: String): UniFile? {
@@ -70,6 +78,10 @@ class StorageManager(
 
     fun getDownloadsDirectory(): UniFile? {
         return getChildDirectory(DOWNLOADS_PATH)
+    }
+
+    fun getTempDirectory(): UniFile? {
+        return getChildDirectory(TEMP_PATH)
     }
 
     fun getLocalSourceDirectory(): UniFile? {
@@ -91,5 +103,6 @@ class StorageManager(
 
 private const val AUTOMATIC_BACKUPS_PATH = "autobackup"
 private const val DOWNLOADS_PATH = "downloads"
+private const val TEMP_PATH = "temp"
 private const val LOCAL_SOURCE_PATH = "local"
 private const val FINISHED_SOURCE_PATH = "finished"

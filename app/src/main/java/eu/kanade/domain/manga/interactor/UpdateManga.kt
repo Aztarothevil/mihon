@@ -1,6 +1,7 @@
 package eu.kanade.domain.manga.interactor
 
 import dev.zacsweers.metro.Inject
+import eu.kanade.tachiyomi.data.download.DownloadManager
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
@@ -15,6 +16,7 @@ import kotlin.time.Instant
 class UpdateManga(
     private val mangaRepository: MangaRepository,
     private val fetchInterval: FetchInterval,
+    private val downloadManager: DownloadManager,
 ) {
 
     suspend fun await(mangaUpdate: MangaUpdate): Boolean {
@@ -66,6 +68,13 @@ class UpdateManga(
             true -> MangaUpdate(mangaId) { favoriteAt = Clock.System.now() }
             false -> MangaUpdate(mangaId) { favoriteAt = null }
         }
-        return mangaRepository.update(update)
+        val result = mangaRepository.update(update)
+        if (result && favorite) {
+            try {
+                val manga = mangaRepository.getMangaById(mangaId)
+                downloadManager.moveTempDownloadsToFinal(manga)
+            } catch (_: Exception) {}
+        }
+        return result
     }
 }

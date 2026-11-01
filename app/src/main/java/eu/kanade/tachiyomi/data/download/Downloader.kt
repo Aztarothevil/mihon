@@ -426,7 +426,7 @@ class Downloader(
      * @param pagesStarted completed once every page has a slot.
      */
     private suspend fun downloadChapter(download: Download, slots: Semaphore, pagesStarted: CompletableDeferred<Unit>) {
-        val mangaDir = provider.getMangaDir(download.manga.title, download.source).getOrElse { e ->
+        val mangaDir = provider.getMangaDir(download.manga.title, download.source, download.manga.favorite).getOrElse { e ->
             download.status = Download.State.ERROR
             notifier.onError(e.message, download.chapter.name, download.manga.title, download.manga.id)
             return

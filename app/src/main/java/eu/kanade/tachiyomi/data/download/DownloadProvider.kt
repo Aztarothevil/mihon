@@ -45,18 +45,22 @@ class DownloadProvider(
     private val downloadsDir: UniFile?
         get() = storageManager.getDownloadsDirectory()
 
+    private val tempDir: UniFile?
+        get() = storageManager.getTempDirectory()
+
     /**
      * Returns the download directory for a manga. For internal use only.
      *
      * @param mangaTitle the title of the manga to query.
      * @param source the source of the manga.
+     * @param isFavorite whether the manga is in the library.
      */
-    internal suspend fun getMangaDir(mangaTitle: String, source: Source): Result<UniFile> =
-        withContext(Dispatchers.IO) { createMangaDir(mangaTitle, source) }
+    internal suspend fun getMangaDir(mangaTitle: String, source: Source, isFavorite: Boolean = true): Result<UniFile> =
+        withContext(Dispatchers.IO) { createMangaDir(mangaTitle, source, isFavorite) }
 
-    private fun createMangaDir(mangaTitle: String, source: Source): Result<UniFile> {
-        val downloadsDir = downloadsDir
-        if (downloadsDir == null) {
+    private fun createMangaDir(mangaTitle: String, source: Source, isFavorite: Boolean): Result<UniFile> {
+        val baseDir = if (isFavorite) downloadsDir else tempDir
+        if (baseDir == null) {
             logcat(LogPriority.ERROR) { "Failed to create download directory" }
             return Result.failure(
                 IOException(context.stringResource(MR.strings.storage_failed_to_create_download_directory)),
@@ -64,9 +68,9 @@ class DownloadProvider(
         }
 
         val sourceDirName = getSourceDirName(source)
-        val sourceDir = downloadsDir.createDirectory(sourceDirName)
+        val sourceDir = baseDir.createDirectory(sourceDirName)
         if (sourceDir == null) {
-            val displayablePath = downloadsDir.displayablePath + "/$sourceDirName"
+            val displayablePath = baseDir.displayablePath + "/$sourceDirName"
             logcat(LogPriority.ERROR) { "Failed to create source download directory: $displayablePath" }
             return Result.failure(
                 IOException(context.stringResource(MR.strings.storage_failed_to_create_directory, displayablePath)),
@@ -95,6 +99,8 @@ class DownloadProvider(
         val sourceDirName = getSourceDirName(source)
         downloadsDir?.findFile(sourceDirName)
             ?: downloadsDir?.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(sourceDirName, ignoreCase = true) == true }
+            ?: tempDir?.findFile(sourceDirName)
+            ?: tempDir?.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(sourceDirName, ignoreCase = true) == true }
     }
 
     /**
@@ -105,9 +111,19 @@ class DownloadProvider(
      */
     suspend fun findMangaDir(mangaTitle: String, source: Source): UniFile? = withContext(Dispatchers.IO) {
         val mangaDirName = getMangaDirName(mangaTitle)
-        val sourceDir = findSourceDir(source)
-        sourceDir?.findFile(mangaDirName)
-            ?: sourceDir?.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(mangaDirName, ignoreCase = true) == true }
+        val sourceDirName = getSourceDirName(source)
+
+        val downloadsSourceDir = downloadsDir?.findFile(sourceDirName)
+            ?: downloadsDir?.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(sourceDirName, ignoreCase = true) == true }
+        val downloadsMangaDir = downloadsSourceDir?.findFile(mangaDirName)
+            ?: downloadsSourceDir?.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(mangaDirName, ignoreCase = true) == true }
+
+        if (downloadsMangaDir != null) return@withContext downloadsMangaDir
+
+        val tempSourceDir = tempDir?.findFile(sourceDirName)
+            ?: tempDir?.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(sourceDirName, ignoreCase = true) == true }
+        tempSourceDir?.findFile(mangaDirName)
+            ?: tempSourceDir?.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(mangaDirName, ignoreCase = true) == true }
     }
 
     /**
