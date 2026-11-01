@@ -1089,4 +1089,5 @@
     <string name="donationCampaign.contactPlatform">Discord</string>
     <string name="donationCampaign.dismiss">Dismiss</string>
     <string name="confirm_exit">Press back again to exit</string>
+    <string name="migration_dialog_remove_downloads_warning">Warning: All downloaded chapters from the original source will be permanently deleted from device storage upon migration.</string>
 </resources>

@@ -83,7 +83,7 @@ class SourcePreferences(
 
     val migrationFlags: Preference<Set<MigrationFlag>> = preferenceStore.getObjectFromInt(
         key = "migration_flags",
-        defaultValue = MigrationFlag.entries.toSet(),
+        defaultValue = MigrationFlag.entries.toSet() - MigrationFlag.REMOVE_DOWNLOAD,
         serializer = { MigrationFlag.toBit(it) },
         deserializer = { value: Int -> MigrationFlag.fromBit(value) },
     )

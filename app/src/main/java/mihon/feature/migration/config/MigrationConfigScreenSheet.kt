@@ -109,7 +109,7 @@ fun MigrationConfigScreenSheet(
                 val removeDownloads = MigrationFlag.REMOVE_DOWNLOAD in migrationFlags
                 MigrationSheetSwitchItem(
                     title = stringResource(MR.strings.migrationConfigScreen_removeDownloadsTitle),
-                    subtitle = null,
+                    subtitle = if (removeDownloads) stringResource(MR.strings.migration_dialog_remove_downloads_warning) else null,
                     checked = removeDownloads,
                     onClick = {
                         preferences.migrationFlags.getAndSet {

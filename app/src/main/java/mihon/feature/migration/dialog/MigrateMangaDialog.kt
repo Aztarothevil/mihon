@@ -5,8 +5,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -85,6 +87,15 @@ internal fun Screen.MigrateMangaDialog(
                         label = stringResource(flag.getLabel()),
                         checked = flag in state.selectedFlags,
                         onCheckedChange = { viewModel.toggleSelection(flag) },
+                    )
+                }
+
+                if (MigrationFlag.REMOVE_DOWNLOAD in state.selectedFlags) {
+                    Text(
+                        text = stringResource(MR.strings.migration_dialog_remove_downloads_warning),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 8.dp),
                     )
                 }
             }

@@ -896,4 +896,5 @@
     <string name="extensionStoresScreen.deleteStore.body">¿Seguro que quieres quitar el listado de extensiones «%1$s» (%2$s)?</string>
     <string name="pref_webtoon_vertical_navigator_on_left">Ubicar la interfaz de navegación en el margen izquierdo</string>
     <string name="confirm_exit">Presiona atrás de nuevo para salir</string>
+    <string name="migration_dialog_remove_downloads_warning">Advertencia: Todos los capítulos descargados de la fuente original se eliminarán permanentemente del dispositivo al migrar.</string>
 </resources>
