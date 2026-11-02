@@ -47,7 +47,7 @@ object MangaMapper {
         description = remoteDescription,
         genre = remoteGenre,
         status = remoteStatus,
-        thumbnailUrl = remoteCover,
+        thumbnailUrl = remoteCover?.takeIf { !it.contains("otakuteca.com", ignoreCase = true) },
         updateStrategy = remoteUpdateStrategy,
         initialized = stateInitialized,
         notes = userNotes,

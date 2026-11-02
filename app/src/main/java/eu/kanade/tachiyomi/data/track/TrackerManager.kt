@@ -15,7 +15,7 @@ import eu.kanade.tachiyomi.data.track.mangaupdates.MangaUpdates
 import eu.kanade.tachiyomi.data.track.myanimelist.MyAnimeList
 import eu.kanade.tachiyomi.data.track.shikimori.Shikimori
 import eu.kanade.tachiyomi.data.track.suwayomi.Suwayomi
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 
 @Inject
 @SingleIn(AppScope::class)
@@ -34,30 +34,13 @@ class TrackerManager {
     val mangaBaka = MangaBaka(11L)
     val comick = Comick(12L)
 
-    val trackers = listOf(
-        mangaBaka,
-        myAnimeList,
-        aniList,
-        kitsu,
-        shikimori,
-        bangumi,
-        komga,
-        mangaUpdates,
-        kavita,
-        suwayomi,
-        hikka,
-        comick,
-    )
+    val trackers: List<Tracker> = emptyList()
 
-    fun loggedInTrackers() = trackers.filter { it.isLoggedIn }
+    fun loggedInTrackers(): List<Tracker> = emptyList()
 
-    fun loggedInTrackersFlow() = combine(trackers.map { it.isLoggedInFlow }) {
-        it.mapIndexedNotNull { index, isLoggedIn ->
-            if (isLoggedIn) trackers[index] else null
-        }
-    }
+    fun loggedInTrackersFlow() = flowOf(emptyList<Tracker>())
 
-    fun get(id: Long) = trackers.find { it.id == id }
+    fun get(id: Long): Tracker? = null
 
-    fun getAll(ids: Set<Long>) = trackers.filter { it.id in ids }
+    fun getAll(ids: Set<Long>): List<Tracker> = emptyList()
 }

@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.data.download
 
 import android.content.ContentResolver
 import android.content.Context
+import android.graphics.BitmapFactory
 import com.hippo.unifile.UniFile
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
@@ -148,7 +149,15 @@ class DownloadProvider(
         val mangaDir = findMangaDir(mangaTitle, source) ?: return@withContext null
         mangaDir.listFiles()
             ?.filter { it.isFile && (it.nameWithoutExtension?.equals("cover", ignoreCase = true) == true || it.nameWithoutExtension?.equals(".cover", ignoreCase = true) == true) }
-            ?.firstOrNull { ImageUtil.isImage(it.name) { it.openInputStream() } }
+            ?.firstOrNull { file ->
+                val bytes = runCatching { file.openInputStream().use { it.readBytes() } }.getOrNull()
+                if (bytes != null && isValidImage(bytes)) {
+                    true
+                } else {
+                    file.delete()
+                    false
+                }
+            }
     }
 
     /**
@@ -159,10 +168,14 @@ class DownloadProvider(
      * @param inputStream the stream of the cover image.
      */
     suspend fun saveMangaCover(mangaTitle: String, source: Source, inputStream: InputStream): UniFile? = withContext(Dispatchers.IO) {
+        val bytes = inputStream.readBytes()
+        if (!isValidImage(bytes)) {
+            return@withContext null
+        }
         val mangaDir = getMangaDir(mangaTitle, source).getOrNull() ?: return@withContext null
         val targetFile = mangaDir.findFile("cover.jpg") ?: mangaDir.createFile("cover.jpg") ?: return@withContext null
         try {
-            inputStream.use { input ->
+            bytes.inputStream().use { input ->
                 targetFile.openOutputStream().use { output ->
                     input.copyTo(output)
                 }
@@ -172,6 +185,55 @@ class DownloadProvider(
         } catch (e: Exception) {
             logcat(LogPriority.ERROR, e) { "Failed to save cover to manga directory" }
             null
+        }
+    }
+
+    private fun isValidImage(bytes: ByteArray): Boolean {
+        if (bytes.size < 12) return false
+
+        val b0 = bytes[0].toInt() and 0xFF
+        val b1 = bytes[1].toInt() and 0xFF
+        val b2 = bytes[2].toInt() and 0xFF
+        val b3 = bytes[3].toInt() and 0xFF
+
+        // JPEG: FF D8 FF
+        if (b0 == 0xFF && b1 == 0xD8 && b2 == 0xFF) return true
+
+        // PNG: 89 50 4E 47
+        if (b0 == 0x89 && b1 == 0x50 && b2 == 0x4E && b3 == 0x47) return true
+
+        // GIF: GIF8 (47 49 46 38)
+        if (b0 == 0x47 && b1 == 0x49 && b2 == 0x46 && b3 == 0x38) return true
+
+        // WEBP: RIFF ... WEBP
+        if (b0 == 0x52 && b1 == 0x49 && b2 == 0x46 && b3 == 0x46) {
+            val b8 = bytes[8].toInt() and 0xFF
+            val b9 = bytes[9].toInt() and 0xFF
+            val b10 = bytes[10].toInt() and 0xFF
+            val b11 = bytes[11].toInt() and 0xFF
+            if (b8 == 0x57 && b9 == 0x45 && b10 == 0x42 && b11 == 0x50) return true
+        }
+
+        // BMP: BM
+        if (b0 == 0x42 && b1 == 0x4D) return true
+
+        // AVIF / HEIF: ftyp at bytes 4..7
+        val b4 = bytes[4].toInt() and 0xFF
+        val b5 = bytes[5].toInt() and 0xFF
+        val b6 = bytes[6].toInt() and 0xFF
+        val b7 = bytes[7].toInt() and 0xFF
+        if (b4 == 0x66 && b5 == 0x74 && b6 == 0x79 && b7 == 0x70) return true
+
+        // JXL: FF 0A
+        if (b0 == 0xFF && b1 == 0x0A) return true
+
+        // Fallback: BitmapFactory decode bounds
+        return try {
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+            options.outWidth > 0 && options.outHeight > 0
+        } catch (e: Exception) {
+            false
         }
     }
 

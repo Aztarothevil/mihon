@@ -68,7 +68,9 @@ import tachiyomi.domain.manga.interactor.GetLibraryManga
 import tachiyomi.domain.manga.interactor.GetManga
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.source.model.SourceNotInstalledException
+import tachiyomi.domain.source.model.StubSource
 import tachiyomi.domain.source.service.SourceManager
+import tachiyomi.source.local.isLocal
 import tachiyomi.i18n.MR
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
@@ -191,7 +193,17 @@ class LibraryUpdateWorker(private val context: Context, workerParams: WorkerPara
 
         mangaToUpdate = listToUpdate
             .filter {
+                val source = sourceManager.get(it.manga.source)
                 when {
+                    source == null || source is StubSource || source.isLocal() -> {
+                        if (source == null || source is StubSource) {
+                            skippedUpdates.add(
+                                it.manga to context.stringResource(MR.strings.loader_not_implemented_error),
+                            )
+                        }
+                        false
+                    }
+
                     it.manga.updateStrategy == UpdateStrategy.ONLY_FETCH_ONCE && it.totalChapters > 0L -> {
                         skippedUpdates.add(
                             it.manga to context.stringResource(MR.strings.skipped_reason_not_always_update),

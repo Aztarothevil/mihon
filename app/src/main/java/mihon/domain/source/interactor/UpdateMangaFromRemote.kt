@@ -20,6 +20,8 @@ import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.manga.model.MangaRemoteUpdate
 import tachiyomi.domain.manga.repository.MangaRepository
+import tachiyomi.domain.source.model.SourceNotInstalledException
+import tachiyomi.domain.source.model.StubSource
 import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.source.local.isLocal
 import kotlin.time.Clock
@@ -42,13 +44,18 @@ class UpdateMangaFromRemote(
         manualFetch: Boolean = false,
         fetchWindow: ClosedRange<Instant>? = null,
     ): Result<RemoteMangaUpdate> {
-        val source = sourceManager.getOrStub(manga.source)
+        val source = sourceManager.get(manga.source)
+            ?: return Result.failure(SourceNotInstalledException())
+        if (source is StubSource) {
+            return Result.failure(SourceNotInstalledException())
+        }
         return invoke(
             source = source,
             manga = manga,
             fetchDetails = fetchDetails,
             fetchChapters = fetchChapters,
             manualFetch = manualFetch,
+            fetchWindow = fetchWindow,
         )
     }
 
@@ -60,6 +67,9 @@ class UpdateMangaFromRemote(
         manualFetch: Boolean = false,
         fetchWindow: ClosedRange<Instant>? = null,
     ): Result<RemoteMangaUpdate> = withContext(Dispatchers.IO) {
+        if (source is StubSource || sourceManager.get(source.id) == null) {
+            return@withContext Result.failure(SourceNotInstalledException())
+        }
         try {
             val chapters = chapterRepository.getChapterByMangaId(manga.id)
                 .sortedBy { it.sourceOrder }

@@ -68,6 +68,7 @@ import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.preference.Preference
 import tachiyomi.core.common.preference.PreferenceStore
 import tachiyomi.core.common.util.system.logcat
+import tachiyomi.domain.chapter.repository.ChapterRepository
 import tachiyomi.domain.manga.repository.MangaRepository
 import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.i18n.MR
@@ -102,6 +103,8 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
     @Inject private lateinit var sourceManager: Lazy<SourceManager>
 
     @Inject private lateinit var mangaRepository: Lazy<MangaRepository>
+
+    @Inject private lateinit var chapterRepository: Lazy<ChapterRepository>
 
     @Inject private lateinit var extensionManager: Lazy<ExtensionManager>
 
@@ -220,8 +223,8 @@ class App : Application(), DefaultLifecycleObserver, SingletonImageLoader.Factor
                 add(ImageDecoder.Factory())
                 // Fetcher.Factory
                 add(BufferedSourceFetcher.Factory())
-                add(MangaCoverFetcher.MangaCoverFactory(callFactoryLazy, coverCache, sourceManager, downloadProvider, mangaRepository))
-                add(MangaCoverFetcher.MangaFactory(callFactoryLazy, coverCache, sourceManager, downloadProvider))
+                add(MangaCoverFetcher.MangaCoverFactory(callFactoryLazy, coverCache, sourceManager, downloadProvider, mangaRepository, chapterRepository))
+                add(MangaCoverFetcher.MangaFactory(callFactoryLazy, coverCache, sourceManager, downloadProvider, chapterRepository))
                 add(ExtensionIconFetcher.ExtensionFactory(context))
                 add(ExtensionIconFetcher.SourceFactory(context, extensionManager))
                 // Keyer
