@@ -114,6 +114,7 @@ fun MangaScreen(
     onMigrateToFinishedClicked: (() -> Unit)? = null,
     onMigrateToLocalClicked: (() -> Unit)? = null,
     onEditNotesClicked: () -> Unit,
+    onSanitizeNamesClicked: () -> Unit,
 
     // For bottom action menu
     onMultiBookmarkClicked: (List<Chapter>, bookmarked: Boolean) -> Unit,
@@ -166,6 +167,7 @@ fun MangaScreen(
             onMigrateToFinishedClicked = onMigrateToFinishedClicked,
             onMigrateToLocalClicked = onMigrateToLocalClicked,
             onEditNotesClicked = onEditNotesClicked,
+            onSanitizeNamesClicked = onSanitizeNamesClicked,
             onMultiBookmarkClicked = onMultiBookmarkClicked,
             onMultiMarkAsReadClicked = onMultiMarkAsReadClicked,
             onMarkPreviousAsReadClicked = onMarkPreviousAsReadClicked,
@@ -205,6 +207,7 @@ fun MangaScreen(
             onMigrateToFinishedClicked = onMigrateToFinishedClicked,
             onMigrateToLocalClicked = onMigrateToLocalClicked,
             onEditNotesClicked = onEditNotesClicked,
+            onSanitizeNamesClicked = onSanitizeNamesClicked,
             onMultiBookmarkClicked = onMultiBookmarkClicked,
             onMultiMarkAsReadClicked = onMultiMarkAsReadClicked,
             onMarkPreviousAsReadClicked = onMarkPreviousAsReadClicked,
@@ -254,6 +257,7 @@ private fun MangaScreenSmallImpl(
     onMigrateToFinishedClicked: (() -> Unit)? = null,
     onMigrateToLocalClicked: (() -> Unit)? = null,
     onEditNotesClicked: () -> Unit,
+    onSanitizeNamesClicked: () -> Unit,
 
     // For bottom action menu
     onMultiBookmarkClicked: (List<Chapter>, bookmarked: Boolean) -> Unit,
@@ -312,6 +316,7 @@ private fun MangaScreenSmallImpl(
                 onClickMigrateToFinished = onMigrateToFinishedClicked,
                 onClickMigrateToLocal = onMigrateToLocalClicked,
                 onClickEditNotes = onEditNotesClicked,
+                onClickSanitizeNames = onSanitizeNamesClicked,
                 actionModeCounter = state.selectedChapters.size,
                 onCancelActionMode = { onAllChapterSelected(false) },
                 onSelectAll = { onAllChapterSelected(true) },
@@ -490,6 +495,7 @@ fun MangaScreenLargeImpl(
     onMigrateToFinishedClicked: (() -> Unit)? = null,
     onMigrateToLocalClicked: (() -> Unit)? = null,
     onEditNotesClicked: () -> Unit,
+    onSanitizeNamesClicked: () -> Unit,
 
     // For bottom action menu
     onMultiBookmarkClicked: (List<Chapter>, bookmarked: Boolean) -> Unit,
@@ -541,6 +547,7 @@ fun MangaScreenLargeImpl(
                 onClickMigrateToFinished = onMigrateToFinishedClicked,
                 onClickMigrateToLocal = onMigrateToLocalClicked,
                 onClickEditNotes = onEditNotesClicked,
+                onClickSanitizeNames = onSanitizeNamesClicked,
                 onCancelActionMode = { onAllChapterSelected(false) },
                 actionModeCounter = state.selectedChapters.size,
                 onSelectAll = { onAllChapterSelected(true) },
@@ -777,9 +784,10 @@ private fun LazyListScope.sharedChapterItems(
                     read = item.chapter.read,
                     bookmark = item.chapter.bookmark,
                     selected = item.selected,
-                    downloadIndicatorEnabled = !isAnyChapterSelected && !manga.isLocal(),
+                    downloadIndicatorEnabled = !isAnyChapterSelected,
                     downloadStateProvider = { item.downloadState },
                     downloadProgressProvider = { downloadProgressProvider(item.id) },
+                    fromDifferentSourceProvider = { item.fromDifferentSource },
                     chapterSwipeStartAction = chapterSwipeStartAction,
                     chapterSwipeEndAction = chapterSwipeEndAction,
                     onLongClick = {

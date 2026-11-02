@@ -237,6 +237,26 @@ class DownloadManager(
         }.getOrDefault(false)
     }
 
+    fun isChapterDownloadedInAnyOtherSource(
+        chapterName: String,
+        chapterScanlator: String?,
+        chapterUrl: String,
+        mangaTitle: String,
+        currentSourceId: Long,
+    ): Boolean {
+        return cache.isChapterDownloadedInAnyOtherSource(
+            chapterName,
+            chapterScanlator,
+            chapterUrl,
+            mangaTitle,
+            currentSourceId,
+        )
+    }
+
+    fun invalidateCache() {
+        cache.invalidateCache()
+    }
+
     /**
      * Returns true if the chapter is present on disk, bypassing the directory cache.
      *

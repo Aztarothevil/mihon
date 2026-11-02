@@ -42,13 +42,16 @@ import eu.kanade.presentation.util.formattedMessage
 import eu.kanade.tachiyomi.data.cache.CoverCache
 import eu.kanade.tachiyomi.data.download.DownloadCache
 import eu.kanade.tachiyomi.data.download.DownloadManager
+import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.data.download.model.Download
 import eu.kanade.tachiyomi.data.track.EnhancedTracker
 import eu.kanade.tachiyomi.data.track.TrackerManager
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
+import com.hippo.unifile.UniFile
 import eu.kanade.tachiyomi.util.chapter.getNextUnread
 import eu.kanade.tachiyomi.util.removeCovers
+import eu.kanade.tachiyomi.util.storage.DiskUtil
 import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -81,6 +84,8 @@ import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.preference.CheckboxState
 import tachiyomi.core.common.preference.TriState
 import tachiyomi.core.common.preference.mapAsCheckboxState
+import tachiyomi.core.common.storage.extension
+import tachiyomi.core.common.storage.nameWithoutExtension
 import tachiyomi.core.common.util.lang.SubscriberGate
 import tachiyomi.core.common.util.lang.pausedWhileUnsubscribed
 import tachiyomi.core.common.util.system.logcat
@@ -90,8 +95,11 @@ import tachiyomi.domain.category.model.Category
 import tachiyomi.domain.chapter.interactor.SetMangaDefaultChapterFlags
 import tachiyomi.domain.chapter.interactor.UpdateChapter
 import tachiyomi.domain.chapter.model.Chapter
+import tachiyomi.domain.chapter.model.ChapterRemoteUpdate
 import tachiyomi.domain.chapter.model.ChapterUpdate
+import tachiyomi.domain.chapter.repository.ChapterRepository
 import tachiyomi.domain.chapter.model.NoChaptersException
+import tachiyomi.domain.chapter.service.ChapterRecognition
 import tachiyomi.domain.chapter.service.calculateChapterGap
 import tachiyomi.domain.chapter.service.getChapterSort
 import tachiyomi.domain.chapter.service.missingChaptersCount
@@ -142,6 +150,8 @@ class MangaViewModel(
     private val sourceManager: SourceManager,
     private val refreshTracks: RefreshTracks,
     private val coverCache: CoverCache,
+    private val downloadProvider: DownloadProvider,
+    private val chapterRepository: ChapterRepository,
     private val migrateToLocal: MigrateToLocal,
     private val migrateToFinished: MigrateToFinished,
     private val localSourceFileSystem: LocalSourceFileSystem,
@@ -645,7 +655,11 @@ class MangaViewModel(
         val downloadedChapterIds = if (isLocal) emptySet() else downloadManager.getDownloadedChapterIds(this, manga)
         return map { chapter ->
             val activeDownload = queuedDownloads[chapter.id]
-            val downloaded = isLocal || chapter.id in downloadedChapterIds
+            val downloadedInCurrent = isLocal || chapter.id in downloadedChapterIds
+            val downloadedInOther = if (isLocal || downloadedInCurrent) false else downloadManager.isChapterDownloadedInAnyOtherSource(chapter.name, chapter.scanlator, chapter.url, manga.title, manga.source)
+            val isFromDifferent = downloadedInOther || chapter.url.contains("#migrated_")
+
+            val downloaded = downloadedInCurrent || downloadedInOther || isFromDifferent
             val downloadState = when {
                 activeDownload != null -> activeDownload.status
                 downloaded -> Download.State.DOWNLOADED
@@ -655,6 +669,7 @@ class MangaViewModel(
             ChapterList.Item(
                 chapter = chapter,
                 downloadState = downloadState,
+                fromDifferentSource = isFromDifferent,
             )
         }
     }
@@ -1246,6 +1261,145 @@ class MangaViewModel(
             }
         }
     }
+
+    fun sanitizeChapterNames(context: Context) {
+        val successState = state.value as? State.Success ?: return
+        val manga = successState.manga
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val source = sourceManager.getOrStub(manga.source)
+                val downloadMangaDir = downloadProvider.findMangaDir(manga.title, source)
+                val chapters = chapterRepository.getChapterByMangaId(manga.id)
+
+                val remoteUpdates = mutableListOf<ChapterRemoteUpdate>()
+
+                if (downloadMangaDir != null && downloadMangaDir.exists()) {
+                    val downloadedFiles = downloadMangaDir.listFiles().orEmpty()
+                        .filter { !it.name.orEmpty().startsWith('.') && it.name != "cover.jpg" }
+
+                    val usedNames = mutableSetOf<String>()
+
+                    downloadedFiles.forEach { file ->
+                        val fileNameNoExt = file.nameWithoutExtension.orEmpty()
+                        val fileNameRaw = file.name.orEmpty()
+
+                        var matchedChapter = chapters.find { chapter ->
+                            downloadProvider.getValidChapterDirNames(chapter.name, chapter.scanlator, chapter.url)
+                                .any { it.equals(fileNameNoExt, ignoreCase = true) || it.equals(fileNameRaw, ignoreCase = true) }
+                        }
+                        if (matchedChapter == null) {
+                            matchedChapter = chapters.find { chapter ->
+                                val validName = DiskUtil.buildValidFilename(chapter.name)
+                                fileNameNoExt.equals(chapter.name, ignoreCase = true) || fileNameNoExt.equals(validName, ignoreCase = true)
+                            }
+                        }
+                        if (matchedChapter == null) {
+                            val parsedNum = ChapterRecognition.parseChapterNumber(manga.title, fileNameNoExt, -1.0)
+                            if (parsedNum >= 0) {
+                                matchedChapter = chapters.find { it.chapterNumber > 0 && it.chapterNumber == parsedNum }
+                            }
+                        }
+
+                        val chNum = matchedChapter?.chapterNumber?.takeIf { it >= 0 }
+                            ?: ChapterRecognition.parseChapterNumber(manga.title, fileNameNoExt, -1.0)
+
+                        val paddedStr = formatPaddedChapterNumber(chNum, fileNameNoExt)
+                        val isArchive = file.name.orEmpty().endsWith(".cbz", ignoreCase = true) || file.name.orEmpty().endsWith(".zip", ignoreCase = true)
+                        val ext = if (file.isFile && isArchive) "." + file.extension else ""
+
+                        val sanitizedName = "Chapter $paddedStr"
+                        val candidateName = "$sanitizedName$ext"
+
+                        if (candidateName != fileNameRaw) {
+                            var targetName = candidateName
+                            var counter = 1
+                            while (usedNames.contains(targetName) || (downloadMangaDir.findFile(targetName) != null && targetName != fileNameRaw)) {
+                                targetName = "${sanitizedName}_$counter$ext"
+                                counter++
+                            }
+                            usedNames.add(targetName)
+
+                            renameUniFile(file, targetName)
+
+                            if (matchedChapter != null) {
+                                val newDbName = targetName.removeSuffix(ext)
+                                remoteUpdates.add(
+                                    ChapterRemoteUpdate(
+                                        id = matchedChapter.id,
+                                        name = newDbName,
+                                        scanlator = matchedChapter.scanlator,
+                                        chapterNumber = matchedChapter.chapterNumber,
+                                        dateUpload = matchedChapter.dateUpload,
+                                        sourceOrder = matchedChapter.sourceOrder,
+                                        memo = matchedChapter.memo,
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                chapters.forEach { chapter ->
+                    if (chapter.chapterNumber >= 0 && !chapter.name.startsWith("Chapter ")) {
+                        val paddedStr = formatPaddedChapterNumber(chapter.chapterNumber, chapter.name)
+                        val newDbName = "Chapter $paddedStr"
+                        if (remoteUpdates.none { it.id == chapter.id }) {
+                            remoteUpdates.add(
+                                ChapterRemoteUpdate(
+                                    id = chapter.id,
+                                    name = newDbName,
+                                    scanlator = chapter.scanlator,
+                                    chapterNumber = chapter.chapterNumber,
+                                    dateUpload = chapter.dateUpload,
+                                    sourceOrder = chapter.sourceOrder,
+                                    memo = chapter.memo,
+                                ),
+                            )
+                        }
+                    }
+                }
+
+                if (remoteUpdates.isNotEmpty()) {
+                    chapterRepository.updateFromRemote(emptyList(), emptyList(), remoteUpdates)
+                }
+
+                downloadManager.invalidateCache()
+
+                withContext(Dispatchers.Main) {
+                    context.toast("Nombres sanitizados correctamente")
+                }
+            } catch (e: Exception) {
+                logcat(LogPriority.ERROR, e) { "Failed to sanitize chapter names for ${manga.title}" }
+            }
+        }
+    }
+
+    private fun formatPaddedChapterNumber(number: Double, fallbackText: String): String {
+        val num = if (number >= 0) number else {
+            val match = Regex("""\d+(?:\.\d+)?""").find(fallbackText)
+            match?.value?.toDoubleOrNull() ?: 1.0
+        }
+
+        val intPart = num.toInt()
+        val decPart = num - intPart
+        val paddedInt = intPart.toString().padStart(3, '0')
+
+        return if (decPart > 0.0001) {
+            val decStr = num.toString().substringAfter('.')
+            "$paddedInt.$decStr"
+        } else {
+            paddedInt
+        }
+    }
+
+    private fun renameUniFile(sourceFile: UniFile, newName: String) {
+        try {
+            if (sourceFile.name == newName) return
+            sourceFile.renameTo(newName)
+        } catch (e: Exception) {
+            logcat(LogPriority.ERROR, e) { "Failed to rename ${sourceFile.name} to $newName" }
+        }
+    }
 }
 
 @Immutable
@@ -1261,6 +1415,7 @@ sealed class ChapterList {
         val chapter: Chapter,
         val downloadState: Download.State,
         val selected: Boolean = false,
+        val fromDifferentSource: Boolean = false,
     ) : ChapterList() {
         val id = chapter.id
         val isDownloaded = downloadState == Download.State.DOWNLOADED

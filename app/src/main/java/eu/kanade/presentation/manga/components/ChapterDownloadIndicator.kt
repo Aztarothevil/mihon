@@ -1,10 +1,12 @@
 package eu.kanade.presentation.manga.components
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -34,8 +36,8 @@ import mihon.icons.custommaterialsymbols.CustomMaterialSymbols
 import mihon.icons.custommaterialsymbols.rounded.DownloadArrow
 import mihon.icons.custommaterialsymbols.rounded.DownloadCircle
 import mihon.icons.materialsymbols.MaterialSymbols
+import mihon.icons.materialsymbols.rounded.Check
 import mihon.icons.materialsymbols.rounded.Error
-import mihon.icons.materialsymbols.roundedfilled.CheckCircle
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.IconButtonTokens
 import tachiyomi.presentation.core.i18n.stringResource
@@ -55,6 +57,7 @@ fun ChapterDownloadIndicator(
     downloadProgressProvider: () -> Int,
     onClick: (ChapterDownloadAction) -> Unit,
     modifier: Modifier = Modifier,
+    fromDifferentSourceProvider: () -> Boolean = { false },
 ) {
     when (val downloadState = downloadStateProvider()) {
         Download.State.NOT_DOWNLOADED -> NotDownloadedIndicator(
@@ -73,6 +76,7 @@ fun ChapterDownloadIndicator(
             enabled = enabled,
             modifier = modifier,
             onClick = onClick,
+            fromDifferentSource = fromDifferentSourceProvider(),
         )
         Download.State.ERROR -> ErrorIndicator(
             enabled = enabled,
@@ -193,8 +197,15 @@ private fun DownloadedIndicator(
     enabled: Boolean,
     modifier: Modifier = Modifier,
     onClick: (ChapterDownloadAction) -> Unit,
+    fromDifferentSource: Boolean = false,
 ) {
     var isMenuExpanded by remember { mutableStateOf(false) }
+    val themeColor = if (fromDifferentSource) {
+        MaterialTheme.colorScheme.tertiary
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
+
     Box(
         modifier = modifier
             .size(IconButtonTokens.StateLayerSize)
@@ -206,12 +217,23 @@ private fun DownloadedIndicator(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            imageVector = MaterialSymbols.RoundedFilled.CheckCircle,
-            contentDescription = null,
-            modifier = Modifier.size(IndicatorSize),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Box(
+            modifier = Modifier
+                .size(IndicatorSize)
+                .border(
+                    width = IndicatorStrokeWidth,
+                    color = themeColor,
+                    shape = CircleShape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = MaterialSymbols.Rounded.Check,
+                contentDescription = null,
+                modifier = Modifier.size(CheckIconSize),
+                tint = themeColor,
+            )
+        }
         DropdownMenu(expanded = isMenuExpanded, onDismissRequest = { isMenuExpanded = false }) {
             DropdownMenuItem(
                 text = { Text(text = stringResource(MR.strings.action_delete)) },
@@ -283,3 +305,4 @@ private val IndicatorModifier = Modifier
     .padding(IndicatorPadding)
 private val ArrowModifier = Modifier
     .size(IndicatorSize)
+private val CheckIconSize = 16.dp

@@ -172,6 +172,7 @@ class MangaScreen(
                 }
             }.takeIf { !successState.manga.isLocal() },
             onEditNotesClicked = { navigator.push(MangaNotesScreen(manga = successState.manga)) },
+            onSanitizeNamesClicked = { viewModel.sanitizeChapterNames(context) },
             onMultiBookmarkClicked = viewModel::bookmarkChapters,
             onMultiMarkAsReadClicked = viewModel::markChaptersRead,
             onMarkPreviousAsReadClicked = viewModel::markPreviousChapterRead,

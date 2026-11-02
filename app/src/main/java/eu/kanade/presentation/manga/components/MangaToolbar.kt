@@ -39,6 +39,7 @@ fun MangaToolbar(
     onClickMigrateToFinished: (() -> Unit)? = null,
     onClickMigrateToLocal: (() -> Unit)? = null,
     onClickEditNotes: () -> Unit,
+    onClickSanitizeNames: () -> Unit,
 
     // For action mode
     actionModeCounter: Int,
@@ -162,6 +163,12 @@ fun MangaToolbar(
                         AppBar.OverflowAction(
                             title = stringResource(MR.strings.action_notes),
                             onClick = onClickEditNotes,
+                        ),
+                    )
+                    add(
+                        AppBar.OverflowAction(
+                            title = "Sanitize names",
+                            onClick = onClickSanitizeNames,
                         ),
                     )
                 },

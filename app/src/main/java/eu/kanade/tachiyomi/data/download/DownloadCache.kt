@@ -191,6 +191,35 @@ class DownloadCache(
     }
 
     /**
+     * Returns true if the chapter is downloaded in any source other than currentSourceId.
+     */
+    fun isChapterDownloadedInAnyOtherSource(
+        chapterName: String,
+        chapterScanlator: String?,
+        chapterUrl: String,
+        mangaTitle: String,
+        currentSourceId: Long,
+    ): Boolean {
+        renewCache()
+
+        val targetMangaDirName = provider.getMangaDirName(mangaTitle)
+        val validDirNames = provider.getValidChapterDirNames(chapterName, chapterScanlator, chapterUrl)
+
+        for ((sourceId, sourceDir) in rootDownloadsDir.sourceDirs) {
+            if (sourceId == currentSourceId) continue
+            val mangaDir = sourceDir.mangaDirs[targetMangaDirName]
+                ?: sourceDir.mangaDirs.entries.firstOrNull { it.key.equals(targetMangaDirName, ignoreCase = true) }?.value
+            if (mangaDir != null) {
+                val found = validDirNames.any { validName ->
+                    mangaDir.chapterDirs.any { it.equals(validName, ignoreCase = true) }
+                }
+                if (found) return true
+            }
+        }
+        return false
+    }
+
+    /**
      * Returns the amount of downloaded chapters.
      */
     fun getTotalDownloadCount(): Int {
