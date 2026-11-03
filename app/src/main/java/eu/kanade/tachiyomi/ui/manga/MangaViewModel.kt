@@ -24,6 +24,7 @@ import eu.kanade.core.util.addOrRemove
 import eu.kanade.core.util.insertSeparators
 import eu.kanade.domain.chapter.interactor.GetAvailableScanlators
 import eu.kanade.domain.chapter.interactor.SetReadStatus
+import eu.kanade.domain.chapter.interactor.SyncChaptersWithSource
 import eu.kanade.domain.manga.interactor.GetExcludedScanlators
 import eu.kanade.domain.manga.interactor.MigrateToFinished
 import eu.kanade.domain.manga.interactor.MigrateToLocal
@@ -39,23 +40,28 @@ import eu.kanade.domain.track.service.TrackPreferences
 import eu.kanade.presentation.manga.DownloadAction
 import eu.kanade.presentation.manga.components.ChapterDownloadAction
 import eu.kanade.presentation.util.formattedMessage
+import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.cache.CoverCache
 import eu.kanade.tachiyomi.data.download.DownloadCache
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.download.DownloadProvider
 import eu.kanade.tachiyomi.data.download.model.Download
+import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.data.track.EnhancedTracker
 import eu.kanade.tachiyomi.data.track.TrackerManager
 import eu.kanade.tachiyomi.source.Source
+import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
 import com.hippo.unifile.UniFile
 import eu.kanade.tachiyomi.util.chapter.getNextUnread
 import eu.kanade.tachiyomi.util.removeCovers
 import eu.kanade.tachiyomi.util.storage.DiskUtil
+import eu.kanade.tachiyomi.util.system.notify
 import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -68,6 +74,7 @@ import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlin.time.Clock
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
@@ -100,6 +107,7 @@ import tachiyomi.domain.chapter.model.ChapterUpdate
 import tachiyomi.domain.chapter.repository.ChapterRepository
 import tachiyomi.domain.chapter.model.NoChaptersException
 import tachiyomi.domain.chapter.service.ChapterRecognition
+import tachiyomi.core.common.util.lang.compareToWithCollator
 import tachiyomi.domain.chapter.service.calculateChapterGap
 import tachiyomi.domain.chapter.service.getChapterSort
 import tachiyomi.domain.chapter.service.missingChaptersCount
@@ -111,7 +119,10 @@ import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.manga.model.MangaWithChapterCount
 import tachiyomi.domain.manga.model.applyFilter
 import tachiyomi.domain.source.service.SourceManager
+import tachiyomi.domain.storage.service.StorageManager
 import tachiyomi.domain.track.interactor.GetTracks
+import tachiyomi.source.local.LocalSource
+import tachiyomi.source.local.io.Archive
 import tachiyomi.i18n.MR
 import tachiyomi.source.local.io.LocalSourceFileSystem
 import tachiyomi.source.local.isLocal
@@ -147,6 +158,7 @@ class MangaViewModel(
     private val setMangaCategories: SetMangaCategories,
     private val filterChaptersForDownload: FilterChaptersForDownload,
     private val updateMangaFromRemote: UpdateMangaFromRemote,
+    private val syncChaptersWithSource: SyncChaptersWithSource,
     private val sourceManager: SourceManager,
     private val refreshTracks: RefreshTracks,
     private val coverCache: CoverCache,
@@ -155,6 +167,7 @@ class MangaViewModel(
     private val migrateToLocal: MigrateToLocal,
     private val migrateToFinished: MigrateToFinished,
     private val localSourceFileSystem: LocalSourceFileSystem,
+    private val storageManager: StorageManager,
 ) : ViewModel() {
 
     private val subscriberGate = SubscriberGate()
@@ -337,27 +350,45 @@ class MangaViewModel(
             // Fetch info-chapters when needed
             if (needRefreshInfo || needRefreshChapter) {
                 isRefreshingData.value = true
-                fetchAllFromSource(
-                    manga = manga,
-                    manualFetch = false,
-                    fetchDetails = needRefreshInfo,
-                    fetchChapters = needRefreshChapter,
-                )
-                isRefreshingData.value = false
+                val startTime = Clock.System.now().toEpochMilliseconds()
+                try {
+                    fetchAllFromSource(
+                        manga = manga,
+                        manualFetch = false,
+                        fetchDetails = needRefreshInfo,
+                        fetchChapters = needRefreshChapter,
+                    )
+                } finally {
+                    val elapsedTime = Clock.System.now().toEpochMilliseconds() - startTime
+                    if (elapsedTime < 500) {
+                        delay(500 - elapsedTime)
+                    }
+                    isRefreshingData.value = false
+                }
             }
         }
     }
 
     fun fetchAllFromSource(manualFetch: Boolean = true) {
         viewModelScope.launch {
+            logcat(LogPriority.INFO) { "[PTR Stage 1] Pull-to-refresh initiated for mangaId=$mangaId (manualFetch=$manualFetch)" }
             isRefreshingData.value = true
-            fetchAllFromSource(
-                manga = getMangaAndChapters.awaitManga(mangaId),
-                manualFetch = manualFetch,
-                fetchDetails = true,
-                fetchChapters = true,
-            )
-            isRefreshingData.value = false
+            val startTime = Clock.System.now().toEpochMilliseconds()
+            try {
+                fetchAllFromSource(
+                    manga = getMangaAndChapters.awaitManga(mangaId),
+                    manualFetch = manualFetch,
+                    fetchDetails = true,
+                    fetchChapters = true,
+                )
+            } finally {
+                val elapsedTime = Clock.System.now().toEpochMilliseconds() - startTime
+                if (elapsedTime < 500) {
+                    delay(500 - elapsedTime)
+                }
+                isRefreshingData.value = false
+                logcat(LogPriority.INFO) { "[PTR Stage 10] Pull-to-refresh UI spinner hidden for mangaId=$mangaId" }
+            }
         }
     }
 
@@ -368,25 +399,32 @@ class MangaViewModel(
         fetchChapters: Boolean,
     ) {
         try {
-            val update = updateMangaFromRemote(
-                source = sourceManager.getOrStub(manga.source),
-                manga = manga,
-                fetchDetails = fetchDetails,
-                fetchChapters = fetchChapters,
-                manualFetch = manualFetch,
-            )
-                .getOrThrow()
+            val isFinished = isMangaInFinished(manga)
+            logcat(LogPriority.INFO) { "[PTR Stage 2] Evaluating source for '${manga.title}': isLocal=${manga.isLocal()}, isFinished=$isFinished" }
+            if (manga.isLocal() || isFinished) {
+                syncPhysicalChapters(manga)
+            } else {
+                logcat(LogPriority.INFO) { "[PTR Stage 2] Fetching remote chapters for online manga '${manga.title}'" }
+                val update = updateMangaFromRemote(
+                    source = sourceManager.getOrStub(manga.source),
+                    manga = manga,
+                    fetchDetails = fetchDetails,
+                    fetchChapters = fetchChapters,
+                    manualFetch = manualFetch,
+                )
+                    .getOrThrow()
 
-            if (manualFetch) {
-                downloadNewChapters(update.newChapters)
+                if (manualFetch) {
+                    downloadNewChapters(update.newChapters)
+                }
             }
         } catch (_: CancellationException) {
-            // ignore
+            logcat(LogPriority.INFO) { "[PTR Stage 2] Fetch cancelled for '${manga.title}'" }
         } catch (e: Exception) {
+            logcat(LogPriority.ERROR, e) { "[PTR Stage Error] Fetch failed for '${manga.title}'" }
             val message = if (e is NoChaptersException) {
                 context.stringResource(MR.strings.no_chapters_error)
             } else {
-                logcat(LogPriority.ERROR, e)
                 with(context) { e.formattedMessage }
             }
 
@@ -745,6 +783,13 @@ class MangaViewModel(
             .map { it.chapter }
     }
 
+    private fun getNotDownloadedChapters(): List<Chapter> {
+        val chapterItems = if (skipFiltered) filteredChapters.orEmpty() else allChapters.orEmpty()
+        return chapterItems
+            .filter { (_, dlStatus) -> dlStatus == Download.State.NOT_DOWNLOADED }
+            .map { it.chapter }
+    }
+
     private fun startDownload(
         chapters: List<Chapter>,
         startNow: Boolean,
@@ -810,6 +855,7 @@ class MangaViewModel(
             DownloadAction.NEXT_25_CHAPTERS -> getUnreadChaptersSorted().take(25)
             DownloadAction.UNREAD_CHAPTERS -> getUnreadChapters()
             DownloadAction.BOOKMARKED_CHAPTERS -> getBookmarkedChapters()
+            DownloadAction.NOT_DOWNLOADED -> getNotDownloadedChapters()
         }
         if (chaptersToDownload.isNotEmpty()) {
             startDownload(chaptersToDownload, false)
@@ -928,12 +974,32 @@ class MangaViewModel(
      */
     fun deleteChapters(chapters: List<Chapter>) {
         val state = successState ?: return
+        logcat(LogPriority.INFO) { "MangaViewModel.deleteChapters initiated for ${chapters.size} chapters in '${state.manga.title}' (isLocal=${state.manga.isLocal()})" }
         // Outlives the screen, which the delete dialog usually closes along with
         appScope.launch {
             try {
+                chapters.forEach { ch ->
+                    logcat(LogPriority.INFO) { "Deleting chapter target: id=${ch.id}, name='${ch.name}', url='${ch.url}', isBookmarked=${ch.bookmark}, isRead=${ch.read}" }
+                }
+
                 downloadManager.deleteChapters(chapters, state.manga, state.source)
+
+                if (state.manga.isLocal() || isMangaInFinished(state.manga)) {
+                    logcat(LogPriority.INFO) { "Deleting DB entries for ${chapters.size} chapters in local/finished manga '${state.manga.title}'" }
+                    chapterRepository.updateFromRemote(
+                        removedIds = chapters.map { it.id },
+                        added = emptyList(),
+                        updated = emptyList(),
+                    )
+                    val downloadMangaDir = downloadProvider.findMangaDir(state.manga.title, state.source)
+                    if (downloadMangaDir != null && downloadMangaDir.exists()) {
+                        downloadManager.refreshMangaCache(state.manga, downloadMangaDir)
+                    } else {
+                        downloadManager.invalidateCache()
+                    }
+                }
             } catch (e: Exception) {
-                logcat(LogPriority.ERROR, e)
+                logcat(LogPriority.ERROR, e) { "Failed to delete chapters for ${state.manga.title}" }
             }
         }
     }
@@ -1262,41 +1328,275 @@ class MangaViewModel(
         }
     }
 
+    private suspend fun isMangaInFinished(manga: Manga): Boolean {
+        val categories = getCategories.await(manga.id)
+        if (categories.any { it.name.equals("Finished", ignoreCase = true) }) {
+            return true
+        }
+        val finishedDir = storageManager.getFinishedSourceDirectory() ?: return false
+        val mangaDirName = DiskUtil.buildValidFilename(manga.title)
+        return finishedDir.findFile(manga.title) != null || finishedDir.findFile(mangaDirName) != null
+    }
+
+    private suspend fun syncPhysicalChapters(manga: Manga) {
+        logcat(LogPriority.INFO) { "[PTR Stage 3] Locating physical directory for '${manga.title}'" }
+        val source = sourceManager.getOrStub(manga.source)
+        val downloadMangaDir = downloadProvider.findMangaDir(manga.title, source)
+            ?: storageManager.getFinishedSourceDirectory()?.findFile(manga.title)
+            ?: storageManager.getFinishedSourceDirectory()?.findFile(DiskUtil.buildValidFilename(manga.title))
+            ?: storageManager.getFinishedSourceDirectory()?.listFiles()?.firstOrNull {
+                it.isDirectory && (it.name.equals(manga.title, ignoreCase = true) || it.name.equals(DiskUtil.buildValidFilename(manga.title), ignoreCase = true))
+            }
+            ?: storageManager.getLocalSourceDirectory()?.findFile(manga.title)
+            ?: storageManager.getLocalSourceDirectory()?.findFile(DiskUtil.buildValidFilename(manga.title))
+            ?: storageManager.getLocalSourceDirectory()?.findFile(manga.url)
+            ?: localSourceFileSystem.getMangaDirectory(manga.url)
+        if (downloadMangaDir == null) {
+            logcat(LogPriority.WARN) { "[PTR Stage 3] Physical directory NOT found for '${manga.title}'" }
+            return
+        }
+
+        if (!downloadMangaDir.exists() || !downloadMangaDir.isDirectory) {
+            logcat(LogPriority.WARN) { "[PTR Stage 3] Directory does not exist or is not folder: ${downloadMangaDir.uri}" }
+            return
+        }
+
+        logcat(LogPriority.INFO) { "[PTR Stage 3] Located physical folder: ${downloadMangaDir.uri}" }
+
+        val physicalFiles = downloadMangaDir.listFiles().orEmpty()
+            .filter { !it.name.orEmpty().startsWith('.') && it.name != "cover.jpg" }
+            .filter { it.isDirectory || Archive.isSupported(it) || it.extension.equals("epub", true) }
+
+        logcat(LogPriority.INFO) { "[PTR Stage 4] Found ${physicalFiles.size} physical chapter files on disk in '${manga.title}'" }
+
+        val sortedPhysicalFiles = physicalFiles.sortedWith { f1, f2 ->
+            val name1 = f1.nameWithoutExtension.orEmpty()
+            val name2 = f2.nameWithoutExtension.orEmpty()
+            val num1 = ChapterRecognition.parseChapterNumber(manga.title, name1, -1.0)
+            val num2 = ChapterRecognition.parseChapterNumber(manga.title, name2, -1.0)
+            val vol1 = ChapterRecognition.parseVolumeNumber(manga.title, name1)
+            val vol2 = ChapterRecognition.parseVolumeNumber(manga.title, name2)
+
+            if (num1 >= 0 && num2 >= 0 && num1 != num2) {
+                if (vol1 >= 0 && vol2 >= 0 && vol1 != vol2) {
+                    vol1.compareTo(vol2)
+                } else {
+                    num1.compareTo(num2)
+                }
+            } else {
+                val ver1 = ChapterRecognition.parseVersionNumber(name1)
+                val ver2 = ChapterRecognition.parseVersionNumber(name2)
+                if (ver1 != ver2) {
+                    ver1.compareTo(ver2)
+                } else {
+                    name1.compareToWithCollator(name2)
+                }
+            }
+        }
+
+        val dbChapters = chapterRepository.getChapterByMangaId(manga.id)
+
+        val matchedDbChapterIds = mutableSetOf<Long>()
+        val newChaptersToAdd = mutableListOf<Chapter>()
+        val pendingUrlUpdates = mutableListOf<Pair<Long, String>>()
+        val remoteUpdates = mutableListOf<ChapterRemoteUpdate>()
+
+        sortedPhysicalFiles.forEachIndexed { index, file ->
+            val fileNameNoExt = file.nameWithoutExtension.orEmpty()
+            val fileNameRaw = file.name.orEmpty()
+            val fileNum = ChapterRecognition.parseChapterNumber(manga.title, fileNameNoExt, -1.0)
+            val fileUrl = "${manga.url}/$fileNameRaw"
+            val calculatedOrder = index.toLong()
+
+            var matchedChapter = dbChapters.find { chapter ->
+                chapter.id !in matchedDbChapterIds &&
+                    (chapter.url == fileUrl || chapter.url.contains(fileNameRaw) || chapter.url.contains(fileNameNoExt))
+            }
+            if (matchedChapter == null) {
+                matchedChapter = dbChapters.find { chapter ->
+                    chapter.id !in matchedDbChapterIds &&
+                        (fileNameNoExt.equals(chapter.name, ignoreCase = true) || fileNameNoExt.equals(DiskUtil.buildValidFilename(chapter.name), ignoreCase = true))
+                }
+            }
+            if (matchedChapter == null && fileNum >= 0) {
+                matchedChapter = dbChapters.find { chapter ->
+                    chapter.id !in matchedDbChapterIds && chapter.chapterNumber >= 0 && chapter.chapterNumber == fileNum
+                }
+            }
+
+            if (matchedChapter != null) {
+                matchedDbChapterIds.add(matchedChapter.id)
+                logcat(LogPriority.INFO) { "[PTR Stage 5] Matched physical file '${fileNameRaw}' -> DB chapter id=${matchedChapter.id}, name='${matchedChapter.name}'" }
+                if (matchedChapter.url != fileUrl && (manga.isLocal() || isMangaInFinished(manga) || matchedChapter.url.contains(fileNameNoExt))) {
+                    pendingUrlUpdates.add(matchedChapter.id to fileUrl)
+                }
+                if (matchedChapter.name != fileNameNoExt || matchedChapter.sourceOrder != calculatedOrder) {
+                    logcat(LogPriority.INFO) { "[PTR Stage 5] Updating DB name/order for id=${matchedChapter.id} from '${matchedChapter.name}' -> '${fileNameNoExt}' (order=$calculatedOrder)" }
+                    remoteUpdates.add(
+                        ChapterRemoteUpdate(
+                            id = matchedChapter.id,
+                            name = fileNameNoExt,
+                            scanlator = matchedChapter.scanlator,
+                            chapterNumber = if (fileNum >= 0) fileNum else matchedChapter.chapterNumber,
+                            dateUpload = matchedChapter.dateUpload,
+                            sourceOrder = calculatedOrder,
+                            memo = matchedChapter.memo,
+                        ),
+                    )
+                }
+            } else {
+                logcat(LogPriority.INFO) { "[PTR Stage 5] New physical file '${fileNameRaw}' not in DB. Preparing to add as new chapter (num=$fileNum, order=$calculatedOrder)" }
+                val oldMatch = dbChapters.find { it.chapterNumber >= 0 && it.chapterNumber == fileNum }
+                val newChapter = Chapter.create().copy(
+                    mangaId = manga.id,
+                    url = fileUrl,
+                    name = fileNameNoExt,
+                    chapterNumber = if (fileNum >= 0) fileNum else -1.0,
+                    sourceOrder = calculatedOrder,
+                    read = oldMatch?.read ?: false,
+                    bookmark = oldMatch?.bookmark ?: false,
+                    lastPageRead = oldMatch?.lastPageRead ?: 0,
+                    dateFetch = oldMatch?.dateFetch ?: Clock.System.now(),
+                )
+                newChaptersToAdd.add(newChapter)
+            }
+        }
+
+        val dbIdsToDelete = dbChapters.map { it.id }.filter { it !in matchedDbChapterIds }
+        val chapterUpdates = mutableListOf<ChapterUpdate>()
+
+        val deletedChapters = dbChapters.filter { it.id in dbIdsToDelete }
+        deletedChapters.forEach { deletedChapter ->
+            logcat(LogPriority.INFO) { "[PTR Stage 6] Marking stale/duplicate DB chapter id=${deletedChapter.id} ('${deletedChapter.name}') for removal" }
+            if (deletedChapter.read || deletedChapter.bookmark || deletedChapter.lastPageRead > 0) {
+                val matchedPartner = dbChapters.find { it.id in matchedDbChapterIds && it.chapterNumber >= 0 && it.chapterNumber == deletedChapter.chapterNumber }
+                if (matchedPartner != null && (!matchedPartner.read || !matchedPartner.bookmark || matchedPartner.lastPageRead < deletedChapter.lastPageRead)) {
+                    logcat(LogPriority.INFO) { "[PTR Stage 6] Transferring read/bookmark status from deleted id=${deletedChapter.id} to matched id=${matchedPartner.id}" }
+                    chapterUpdates.add(
+                        ChapterUpdate(matchedPartner.id) {
+                            if (deletedChapter.read) read = true
+                            if (deletedChapter.bookmark) bookmark = true
+                            if (deletedChapter.lastPageRead > matchedPartner.lastPageRead) lastPageRead = deletedChapter.lastPageRead
+                        }
+                    )
+                }
+            }
+        }
+
+        if (chapterUpdates.isNotEmpty()) {
+            logcat(LogPriority.INFO) { "[PTR Stage 7] Applying ${chapterUpdates.size} chapter status updates in DB" }
+            updateChapter.awaitAll(chapterUpdates)
+        }
+
+        val existingDbUrls = dbChapters.map { it.url }.toSet()
+        val finalNewChaptersToAdd = newChaptersToAdd
+            .distinctBy { it.url }
+            .filter { it.url !in existingDbUrls }
+
+        logcat(LogPriority.INFO) { "[PTR Stage 8] Database transaction: removing ${dbIdsToDelete.size} IDs, adding ${finalNewChaptersToAdd.size} new, updating ${remoteUpdates.size} remote" }
+
+        if (finalNewChaptersToAdd.isNotEmpty() || dbIdsToDelete.isNotEmpty() || remoteUpdates.isNotEmpty()) {
+            chapterRepository.updateFromRemote(
+                removedIds = dbIdsToDelete,
+                added = finalNewChaptersToAdd,
+                updated = remoteUpdates,
+            )
+        }
+
+        pendingUrlUpdates.forEach { (chapterId, newUrl) ->
+            logcat(LogPriority.INFO) { "[PTR Stage 8] Updating remoteUrl in DB for id=$chapterId -> '$newUrl'" }
+            runCatching { chapterRepository.updateUrl(chapterId, newUrl) }
+        }
+
+        val physicalFileNamesNoExt = physicalFiles.map {
+            if (it.isDirectory) it.name.orEmpty() else it.nameWithoutExtension.orEmpty()
+        }.toSet()
+
+        logcat(LogPriority.INFO) { "[PTR Stage 9] Refreshing download cache for manga '${manga.title}' with ${physicalFileNamesNoExt.size} chapters" }
+        downloadManager.setMangaChapterDirs(manga, physicalFileNamesNoExt)
+        logcat(LogPriority.INFO) { "[PTR Stage 10] Physical chapter sync complete for '${manga.title}'" }
+    }
+
+
+
     fun sanitizeChapterNames(context: Context) {
         val successState = state.value as? State.Success ?: return
         val manga = successState.manga
+        val notificationId = (manga.id xor 0x503).toInt()
+
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                logcat(LogPriority.INFO) { "[Sanitize Stage 1] Starting name sanitization for manga '${manga.title}' (id=${manga.id})" }
+                context.notify(notificationId, Notifications.CHANNEL_COMMON) {
+                    setContentTitle("Sanitizando capítulos: ${manga.title}")
+                    setContentText("Iniciando sanitización...")
+                    setSmallIcon(R.drawable.ic_mihon)
+                    setProgress(0, 0, true)
+                    setOngoing(true)
+                    setOnlyAlertOnce(true)
+                }
+
                 val source = sourceManager.getOrStub(manga.source)
                 val downloadMangaDir = downloadProvider.findMangaDir(manga.title, source)
+                    ?: storageManager.getFinishedSourceDirectory()?.findFile(manga.title)
+                    ?: storageManager.getFinishedSourceDirectory()?.findFile(DiskUtil.buildValidFilename(manga.title))
+                    ?: storageManager.getFinishedSourceDirectory()?.listFiles()?.firstOrNull {
+                        it.isDirectory && (it.name.equals(manga.title, ignoreCase = true) || it.name.equals(DiskUtil.buildValidFilename(manga.title), ignoreCase = true))
+                    }
+                    ?: storageManager.getLocalSourceDirectory()?.findFile(manga.title)
+                    ?: storageManager.getLocalSourceDirectory()?.findFile(DiskUtil.buildValidFilename(manga.title))
+                    ?: storageManager.getLocalSourceDirectory()?.findFile(manga.url)
+                    ?: localSourceFileSystem.getMangaDirectory(manga.url)
+                    ?: downloadProvider.findSourceDir(source)?.findFile(DiskUtil.buildValidFilename(manga.title))
+                    ?: downloadProvider.findSourceDir(source)?.listFiles()?.firstOrNull {
+                        it.isDirectory && (it.name.equals(manga.title, ignoreCase = true) || it.name.equals(DiskUtil.buildValidFilename(manga.title), ignoreCase = true))
+                    }
                 val chapters = chapterRepository.getChapterByMangaId(manga.id)
+                logcat(LogPriority.INFO) { "[Sanitize Stage 2] Located manga directory: ${downloadMangaDir?.uri}" }
 
                 val remoteUpdates = mutableListOf<ChapterRemoteUpdate>()
+                val removeIds = mutableListOf<Long>()
+                val pendingUrlUpdates = mutableListOf<Pair<Long, String>>()
 
                 if (downloadMangaDir != null && downloadMangaDir.exists()) {
                     val downloadedFiles = downloadMangaDir.listFiles().orEmpty()
                         .filter { !it.name.orEmpty().startsWith('.') && it.name != "cover.jpg" }
 
+                    val totalFiles = downloadedFiles.size
+                    logcat(LogPriority.INFO) { "[Sanitize Stage 3] Found $totalFiles physical files in '${manga.title}'" }
                     val usedNames = mutableSetOf<String>()
 
-                    downloadedFiles.forEach { file ->
+                    downloadedFiles.forEachIndexed { index, file ->
+                        val currentProgress = index + 1
+                        context.notify(notificationId, Notifications.CHANNEL_COMMON) {
+                            setContentTitle("Sanitizando capítulos: ${manga.title}")
+                            setContentText("$currentProgress / $totalFiles capítulos")
+                            setSmallIcon(R.drawable.ic_mihon)
+                            setProgress(totalFiles, currentProgress, false)
+                            setOngoing(true)
+                            setOnlyAlertOnce(true)
+                        }
+
                         val fileNameNoExt = file.nameWithoutExtension.orEmpty()
                         val fileNameRaw = file.name.orEmpty()
 
                         var matchedChapter = chapters.find { chapter ->
-                            downloadProvider.getValidChapterDirNames(chapter.name, chapter.scanlator, chapter.url)
-                                .any { it.equals(fileNameNoExt, ignoreCase = true) || it.equals(fileNameRaw, ignoreCase = true) }
+                            chapter.id !in removeIds && remoteUpdates.none { it.id == chapter.id } &&
+                                downloadProvider.getValidChapterDirNames(chapter.name, chapter.scanlator, chapter.url)
+                                    .any { it.equals(fileNameNoExt, ignoreCase = true) || it.equals(fileNameRaw, ignoreCase = true) }
                         }
                         if (matchedChapter == null) {
                             matchedChapter = chapters.find { chapter ->
-                                val validName = DiskUtil.buildValidFilename(chapter.name)
-                                fileNameNoExt.equals(chapter.name, ignoreCase = true) || fileNameNoExt.equals(validName, ignoreCase = true)
+                                chapter.id !in removeIds && remoteUpdates.none { it.id == chapter.id } &&
+                                    (fileNameNoExt.equals(chapter.name, ignoreCase = true) || fileNameNoExt.equals(DiskUtil.buildValidFilename(chapter.name), ignoreCase = true))
                             }
                         }
                         if (matchedChapter == null) {
                             val parsedNum = ChapterRecognition.parseChapterNumber(manga.title, fileNameNoExt, -1.0)
                             if (parsedNum >= 0) {
-                                matchedChapter = chapters.find { it.chapterNumber > 0 && it.chapterNumber == parsedNum }
+                                matchedChapter = chapters.find { chapter ->
+                                    chapter.id !in removeIds && remoteUpdates.none { it.id == chapter.id } && chapter.chapterNumber > 0 && chapter.chapterNumber == parsedNum
+                                }
                             }
                         }
 
@@ -1310,44 +1610,83 @@ class MangaViewModel(
                         val sanitizedName = "Chapter $paddedStr"
                         val candidateName = "$sanitizedName$ext"
 
-                        if (candidateName != fileNameRaw) {
-                            var targetName = candidateName
-                            var counter = 1
-                            while (usedNames.contains(targetName) || (downloadMangaDir.findFile(targetName) != null && targetName != fileNameRaw)) {
-                                targetName = "${sanitizedName}_$counter$ext"
-                                counter++
-                            }
-                            usedNames.add(targetName)
+                        var targetName = candidateName
+                        var version = 2
+                        while (usedNames.contains(targetName) || (downloadMangaDir.findFile(targetName) != null && targetName != fileNameRaw)) {
+                            targetName = "$sanitizedName.v$version$ext"
+                            version++
+                        }
+                        usedNames.add(targetName)
 
-                            renameUniFile(file, targetName)
+                        if (targetName != fileNameRaw) {
+                            logcat(LogPriority.INFO) { "[Sanitize Stage 4] Renaming file physically on disk: '$fileNameRaw' -> '$targetName'" }
+                            moveUniFile(file, downloadMangaDir, targetName)
+                        }
 
-                            if (matchedChapter != null) {
-                                val newDbName = targetName.removeSuffix(ext)
-                                remoteUpdates.add(
-                                    ChapterRemoteUpdate(
-                                        id = matchedChapter.id,
-                                        name = newDbName,
-                                        scanlator = matchedChapter.scanlator,
-                                        chapterNumber = matchedChapter.chapterNumber,
-                                        dateUpload = matchedChapter.dateUpload,
-                                        sourceOrder = matchedChapter.sourceOrder,
-                                        memo = matchedChapter.memo,
-                                    ),
-                                )
+                        val newDbName = targetName.removeSuffix(ext)
+                        if (matchedChapter != null) {
+                            if (manga.isLocal() || matchedChapter.url.contains(fileNameNoExt) || matchedChapter.url.contains(fileNameRaw)) {
+                                val newUrl = matchedChapter.url
+                                    .replace(fileNameRaw, targetName)
+                                    .replace(fileNameNoExt, newDbName)
+                                if (newUrl != matchedChapter.url) {
+                                    pendingUrlUpdates.add(matchedChapter.id to newUrl)
+                                }
                             }
+
+                            remoteUpdates.add(
+                                ChapterRemoteUpdate(
+                                    id = matchedChapter.id,
+                                    name = newDbName,
+                                    scanlator = matchedChapter.scanlator,
+                                    chapterNumber = matchedChapter.chapterNumber,
+                                    dateUpload = matchedChapter.dateUpload,
+                                    sourceOrder = matchedChapter.sourceOrder,
+                                    memo = matchedChapter.memo,
+                                ),
+                            )
                         }
                     }
                 }
 
+                val usedDbNames = remoteUpdates.map { it.name }.toMutableSet()
+                logcat(LogPriority.INFO) { "[Sanitize Stage 5] Formatting and deduplicating DB chapters (total DB chapters=${chapters.size})" }
+
                 chapters.forEach { chapter ->
-                    if (chapter.chapterNumber >= 0 && !chapter.name.startsWith("Chapter ")) {
+                    if (chapter.id in removeIds || remoteUpdates.any { it.id == chapter.id }) return@forEach
+
+                    val sameNumChapters = chapters.filter { it.chapterNumber >= 0 && it.chapterNumber == chapter.chapterNumber }
+                    val isDownloaded = downloadManager.isChapterDownloaded(chapter.name, chapter.scanlator, chapter.url, manga.title, manga.source) ||
+                        downloadManager.isChapterDownloadedInAnyOtherSource(chapter.name, chapter.scanlator, chapter.url, manga.title, manga.source)
+
+                    if (sameNumChapters.size > 1 && !isDownloaded && !chapter.read && chapter.lastPageRead == 0 && !chapter.bookmark) {
+                        val hasHandledPartner = remoteUpdates.any { update ->
+                            val updatedCh = chapters.find { it.id == update.id }
+                            updatedCh != null && updatedCh.chapterNumber == chapter.chapterNumber
+                        }
+                        if (hasHandledPartner) {
+                            removeIds.add(chapter.id)
+                            return@forEach
+                        }
+                    }
+
+                    if (chapter.chapterNumber >= 0) {
                         val paddedStr = formatPaddedChapterNumber(chapter.chapterNumber, chapter.name)
-                        val newDbName = "Chapter $paddedStr"
-                        if (remoteUpdates.none { it.id == chapter.id }) {
+                        val baseDbName = "Chapter $paddedStr"
+
+                        var targetDbName = baseDbName
+                        var version = 2
+                        while (usedDbNames.contains(targetDbName)) {
+                            targetDbName = "$baseDbName.v$version"
+                            version++
+                        }
+                        usedDbNames.add(targetDbName)
+
+                        if (chapter.name != targetDbName) {
                             remoteUpdates.add(
                                 ChapterRemoteUpdate(
                                     id = chapter.id,
-                                    name = newDbName,
+                                    name = targetDbName,
                                     scanlator = chapter.scanlator,
                                     chapterNumber = chapter.chapterNumber,
                                     dateUpload = chapter.dateUpload,
@@ -1359,17 +1698,50 @@ class MangaViewModel(
                     }
                 }
 
-                if (remoteUpdates.isNotEmpty()) {
-                    chapterRepository.updateFromRemote(emptyList(), emptyList(), remoteUpdates)
+                logcat(LogPriority.INFO) { "[Sanitize Stage 6] Applying DB updates: removing ${removeIds.size} IDs, updating ${remoteUpdates.size} chapter names" }
+
+                if (remoteUpdates.isNotEmpty() || removeIds.isNotEmpty()) {
+                    chapterRepository.updateFromRemote(removeIds, emptyList(), remoteUpdates)
                 }
 
-                downloadManager.invalidateCache()
+                logcat(LogPriority.INFO) { "[Sanitize Stage 7] Updating ${pendingUrlUpdates.size} chapter URLs in DB" }
+
+                pendingUrlUpdates.forEach { (chapterId, newUrl) ->
+                    runCatching { chapterRepository.updateUrl(chapterId, newUrl) }
+                }
+
+                logcat(LogPriority.INFO) { "[Sanitize Stage 8] Refreshing download cache for manga '${manga.title}'" }
+
+                if (downloadMangaDir != null && downloadMangaDir.exists()) {
+                    downloadManager.refreshMangaCache(manga, downloadMangaDir)
+                } else {
+                    downloadManager.invalidateCache()
+                }
+
+                logcat(LogPriority.INFO) { "[Sanitize Stage 9] Sanitization completed successfully for '${manga.title}'" }
+
+                context.notify(notificationId, Notifications.CHANNEL_COMMON) {
+                    setContentTitle("Sanitización completada: ${manga.title}")
+                    setContentText("Se sanitizaron los nombres de los capítulos")
+                    setSmallIcon(R.drawable.ic_mihon)
+                    setProgress(0, 0, false)
+                    setOngoing(false)
+                    setAutoCancel(true)
+                }
 
                 withContext(Dispatchers.Main) {
                     context.toast("Nombres sanitizados correctamente")
                 }
             } catch (e: Exception) {
                 logcat(LogPriority.ERROR, e) { "Failed to sanitize chapter names for ${manga.title}" }
+                context.notify(notificationId, Notifications.CHANNEL_COMMON) {
+                    setContentTitle("Error al sanitizar capítulos")
+                    setContentText(manga.title)
+                    setSmallIcon(R.drawable.ic_mihon)
+                    setProgress(0, 0, false)
+                    setOngoing(false)
+                    setAutoCancel(true)
+                }
             }
         }
     }
@@ -1392,12 +1764,33 @@ class MangaViewModel(
         }
     }
 
-    private fun renameUniFile(sourceFile: UniFile, newName: String) {
+    private fun moveUniFile(sourceFile: UniFile, targetDir: UniFile, newName: String) {
         try {
-            if (sourceFile.name == newName) return
-            sourceFile.renameTo(newName)
+            if (sourceFile.name == newName && sourceFile.parentFile?.uri == targetDir.uri) return
+
+            if (sourceFile.renameTo(newName)) {
+                return
+            }
+
+            if (sourceFile.isFile) {
+                val destination = targetDir.createFile(newName) ?: return
+                sourceFile.openInputStream().use { input ->
+                    destination.openOutputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                runCatching { sourceFile.delete() }
+            } else if (sourceFile.isDirectory) {
+                val destination = targetDir.findFile(newName)?.takeIf { it.isDirectory }
+                    ?: targetDir.createDirectory(newName)
+                    ?: return
+                sourceFile.listFiles().orEmpty().forEach { child ->
+                    moveUniFile(child, destination, child.name.orEmpty())
+                }
+                runCatching { sourceFile.delete() }
+            }
         } catch (e: Exception) {
-            logcat(LogPriority.ERROR, e) { "Failed to rename ${sourceFile.name} to $newName" }
+            logcat(LogPriority.ERROR, e) { "Failed to move file ${sourceFile.name} to $newName in ${targetDir.name}" }
         }
     }
 }

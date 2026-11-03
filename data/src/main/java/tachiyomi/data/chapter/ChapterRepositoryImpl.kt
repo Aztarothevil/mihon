@@ -34,6 +34,10 @@ class ChapterRepositoryImpl(
         partialUpdate(*chapterUpdates.toTypedArray())
     }
 
+    override suspend fun updateUrl(chapterId: Long, url: String) {
+        database.chapterQueries.updateUrl(remoteUrl = url, id = chapterId)
+    }
+
     override suspend fun updateFromRemote(
         removedIds: List<Long>,
         added: List<Chapter>,
@@ -56,7 +60,7 @@ class ChapterRepositoryImpl(
                         .map { mangaId to it.url }
                 }
                 .toMutableSet()
-            val stored = added.filter { existing.add(it.mangaId to it.url) }.map { chapter ->
+            val stored = added.filter { existing.add(it.mangaId to it.url) }.mapNotNull { chapter ->
                 val chapterId = database.chapterQueries.insertReturningId(
                     mangaId = chapter.mangaId,
                     remoteUrl = chapter.url,
@@ -71,8 +75,8 @@ class ChapterRepositoryImpl(
                     remoteDateUpload = chapter.dateUpload,
                     remoteMemo = chapter.memo,
                 )
-                    .awaitAsOne()
-                chapter.copy(id = chapterId)
+                    .awaitAsOneOrNull()
+                chapterId?.let { chapter.copy(id = it) }
             }
             updated.forEach { chapterUpdate ->
                 database.chapterQueries.updateRemote(

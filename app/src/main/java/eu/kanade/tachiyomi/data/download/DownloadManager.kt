@@ -257,6 +257,14 @@ class DownloadManager(
         cache.invalidateCache()
     }
 
+    suspend fun refreshMangaCache(manga: Manga, mangaDir: UniFile) {
+        cache.refreshManga(manga, mangaDir)
+    }
+
+    fun setMangaChapterDirs(manga: Manga, chapterDirs: Set<String>) {
+        cache.setMangaChapterDirs(manga, chapterDirs)
+    }
+
     /**
      * Returns true if the chapter is present on disk, bypassing the directory cache.
      *
@@ -313,19 +321,28 @@ class DownloadManager(
      */
     suspend fun deleteChapters(chapters: List<Chapter>, manga: Manga, source: Source) {
         withContext(Dispatchers.IO) {
-            val filteredChapters = getChaptersToDelete(chapters, manga)
+            logcat(LogPriority.INFO) { "DownloadManager.deleteChapters starting for ${chapters.size} chapters in '${manga.title}' (source=${source.name})" }
+            val filteredChapters = if (manga.isLocal()) chapters else getChaptersToDelete(chapters, manga)
             if (filteredChapters.isEmpty()) {
+                logcat(LogPriority.WARN) { "DownloadManager.deleteChapters: filteredChapters is empty for '${manga.title}'. Chapter may be bookmarked or excluded." }
                 return@withContext
             }
 
             downloader.dequeue(filteredChapters)
 
             val (mangaDir, chapterDirs) = provider.findChapterDirs(filteredChapters, manga, source)
-            chapterDirs.forEach { it.delete() }
+            logcat(LogPriority.INFO) { "DownloadManager.deleteChapters: mangaDir=${mangaDir?.name}, found ${chapterDirs.size} physical chapterDirs" }
+
+            chapterDirs.forEach { dir ->
+                logcat(LogPriority.INFO) { "Deleting physical directory/file: ${dir.name} at ${dir.uri}" }
+                val deleted = dir.delete()
+                logcat(LogPriority.INFO) { "Delete result for ${dir.name}: $deleted" }
+            }
             cache.removeChapters(filteredChapters, manga)
 
             // Delete manga directory if empty
             if (mangaDir?.listFiles()?.isEmpty() == true) {
+                logcat(LogPriority.INFO) { "Manga directory ${mangaDir.name} is empty, deleting manga dir" }
                 deleteManga(manga, source, removeQueued = false)
             }
         }

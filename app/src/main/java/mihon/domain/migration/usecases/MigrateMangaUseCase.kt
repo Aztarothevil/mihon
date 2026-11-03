@@ -283,10 +283,10 @@ class MigrateMangaUseCase(
             }
 
             var candidateName = "$baseName$ext"
-            var counter = 1
+            var version = 2
             while (usedNames.contains(candidateName) || targetMangaDir.findFile(candidateName) != null) {
-                candidateName = "${baseName}_$counter$ext"
-                counter++
+                candidateName = "$baseName.v$version$ext"
+                version++
             }
             usedNames.add(candidateName)
 
@@ -342,6 +342,12 @@ class MigrateMangaUseCase(
 
     private fun moveUniFile(sourceFile: UniFile, targetDir: UniFile, newName: String) {
         try {
+            if (sourceFile.name == newName && sourceFile.parentFile?.uri == targetDir.uri) return
+
+            if (sourceFile.renameTo(newName)) {
+                return
+            }
+
             if (sourceFile.isFile) {
                 val destination = targetDir.createFile(newName) ?: return
                 sourceFile.openInputStream().use { input ->
@@ -349,7 +355,7 @@ class MigrateMangaUseCase(
                         input.copyTo(output)
                     }
                 }
-                sourceFile.delete()
+                runCatching { sourceFile.delete() }
             } else if (sourceFile.isDirectory) {
                 val destination = targetDir.findFile(newName)?.takeIf { it.isDirectory }
                     ?: targetDir.createDirectory(newName)
@@ -357,7 +363,7 @@ class MigrateMangaUseCase(
                 sourceFile.listFiles().orEmpty().forEach { child ->
                     moveUniFile(child, destination, child.name.orEmpty())
                 }
-                sourceFile.delete()
+                runCatching { sourceFile.delete() }
             }
         } catch (e: Exception) {
             logcat(LogPriority.ERROR, e) { "Failed to move file ${sourceFile.name} to $newName" }

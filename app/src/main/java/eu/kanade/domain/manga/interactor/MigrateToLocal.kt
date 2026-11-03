@@ -339,19 +339,28 @@ class MigrateToLocal(
 
     private fun moveUniFile(sourceFile: UniFile, targetDir: UniFile, newName: String) {
         try {
-            val destination = targetDir.createFile(newName) ?: targetDir.createDirectory(newName) ?: return
+            if (sourceFile.name == newName && sourceFile.parentFile?.uri == targetDir.uri) return
+
+            if (sourceFile.renameTo(newName)) {
+                return
+            }
+
             if (sourceFile.isFile) {
+                val destination = targetDir.createFile(newName) ?: return
                 sourceFile.openInputStream().use { input ->
                     destination.openOutputStream().use { output ->
                         input.copyTo(output)
                     }
                 }
-                sourceFile.delete()
+                runCatching { sourceFile.delete() }
             } else if (sourceFile.isDirectory) {
+                val destination = targetDir.findFile(newName)?.takeIf { it.isDirectory }
+                    ?: targetDir.createDirectory(newName)
+                    ?: return
                 sourceFile.listFiles().orEmpty().forEach { child ->
                     moveUniFile(child, destination, child.name.orEmpty())
                 }
-                sourceFile.delete()
+                runCatching { sourceFile.delete() }
             }
         } catch (e: Exception) {
             logcat(LogPriority.ERROR, e) { "Failed to move file ${sourceFile.name} to $newName" }

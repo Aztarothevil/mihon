@@ -118,7 +118,7 @@ class SyncChaptersWithSource(
                 newChapters.add(toAddChapter)
             } else {
                 if (shouldUpdateDbChapter.await(dbChapter, chapter)) {
-                    val shouldRenameChapter = downloadProvider.isChapterDirNameChanged(dbChapter, chapter) &&
+                    val shouldRenameChapter = !manga.isLocal() && !source.isLocal() && downloadProvider.isChapterDirNameChanged(dbChapter, chapter) &&
                         downloadManager.isChapterDownloaded(
                             dbChapter.name,
                             dbChapter.scanlator,
@@ -146,7 +146,15 @@ class SyncChaptersWithSource(
             }
         }
 
-        val removedChapters = dbChapters.filterNot { it.url in sourceUrls }
+        val removedChapters = dbChapters.filterNot { dbChapter ->
+            dbChapter.url in sourceUrls ||
+                dbChapter.url.contains("#migrated_") ||
+                dbChapter.bookmark ||
+                dbChapter.read ||
+                dbChapter.lastPageRead > 0 ||
+                downloadManager.isChapterDownloaded(dbChapter.name, dbChapter.scanlator, dbChapter.url, manga.title, manga.source) ||
+                downloadManager.isChapterDownloadedInAnyOtherSource(dbChapter.name, dbChapter.scanlator, dbChapter.url, manga.title, manga.source)
+        }
 
         // The source no longer lists these, so their queued downloads could only fail
         removedChapters.mapNotNull { downloadManager.getQueuedDownloadOrNull(it.id) }

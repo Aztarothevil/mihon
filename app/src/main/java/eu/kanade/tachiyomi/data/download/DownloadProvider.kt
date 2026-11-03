@@ -22,6 +22,7 @@ import tachiyomi.core.common.storage.nameWithoutExtension
 import tachiyomi.core.common.util.system.ImageUtil
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.chapter.model.Chapter
+import tachiyomi.domain.chapter.service.ChapterRecognition
 import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.storage.service.StorageManager
@@ -117,26 +118,52 @@ class DownloadProvider(
      */
     suspend fun findMangaDir(mangaTitle: String, source: Source): UniFile? = withContext(Dispatchers.IO) {
         val mangaDirName = getMangaDirName(mangaTitle)
+        val validMangaName = DiskUtil.buildValidFilename(mangaTitle)
         val sourceDirName = getSourceDirName(source)
 
-        val downloadsSourceDir = downloadsDir?.findFile(sourceDirName)
-            ?: downloadsDir?.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(sourceDirName, ignoreCase = true) == true }
-        val downloadsMangaDir = downloadsSourceDir?.findFile(mangaDirName)
-            ?: downloadsSourceDir?.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(mangaDirName, ignoreCase = true) == true }
+        fun findInBaseDir(baseDir: UniFile?): UniFile? {
+            if (baseDir == null || !baseDir.exists()) return null
+            val sourceDir = baseDir.findFile(sourceDirName)
+                ?: baseDir.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(sourceDirName, ignoreCase = true) == true }
+            if (sourceDir != null) {
+                val mangaDir = sourceDir.findFile(mangaDirName)
+                    ?: sourceDir.findFile(validMangaName)
+                    ?: sourceDir.listFiles()?.firstOrNull {
+                        it.isDirectory && (it.name?.equals(mangaDirName, ignoreCase = true) == true ||
+                            it.name?.equals(validMangaName, ignoreCase = true) == true ||
+                            it.name?.equals(mangaTitle, ignoreCase = true) == true)
+                    }
+                if (mangaDir != null) return mangaDir
+            }
+            return null
+        }
 
-        if (downloadsMangaDir != null) return@withContext downloadsMangaDir
+        fun findInFolder(folder: UniFile?): UniFile? {
+            if (folder == null || !folder.exists()) return null
+            return folder.findFile(mangaDirName)
+                ?: folder.findFile(validMangaName)
+                ?: folder.listFiles()?.firstOrNull {
+                    it.isDirectory && (it.name?.equals(mangaDirName, ignoreCase = true) == true ||
+                        it.name?.equals(validMangaName, ignoreCase = true) == true ||
+                        it.name?.equals(mangaTitle, ignoreCase = true) == true)
+                }
+        }
 
-        val tempSourceDir = tempDir?.findFile(sourceDirName)
-            ?: tempDir?.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(sourceDirName, ignoreCase = true) == true }
-        val tempMangaDir = tempSourceDir?.findFile(mangaDirName)
-            ?: tempSourceDir?.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(mangaDirName, ignoreCase = true) == true }
+        findInBaseDir(downloadsDir)?.let { return@withContext it }
+        findInBaseDir(tempDir)?.let { return@withContext it }
+        findInBaseDir(dropDir)?.let { return@withContext it }
 
-        if (tempMangaDir != null) return@withContext tempMangaDir
+        findInFolder(storageManager.getFinishedSourceDirectory())?.let { return@withContext it }
+        findInFolder(storageManager.getLocalSourceDirectory())?.let { return@withContext it }
 
-        val dropSourceDir = dropDir?.findFile(sourceDirName)
-            ?: dropDir?.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(sourceDirName, ignoreCase = true) == true }
-        dropSourceDir?.findFile(mangaDirName)
-            ?: dropSourceDir?.listFiles()?.firstOrNull { it.isDirectory && it.name?.equals(mangaDirName, ignoreCase = true) == true }
+        downloadsDir?.listFiles()?.forEach { srcDir ->
+            if (srcDir.isDirectory) {
+                val found = findInFolder(srcDir)
+                if (found != null) return@withContext found
+            }
+        }
+
+        null
     }
 
     /**
@@ -252,10 +279,43 @@ class DownloadProvider(
         mangaTitle: String,
         source: Source,
     ): UniFile? = withContext(Dispatchers.IO) {
-        val mangaDir = findMangaDir(mangaTitle, source)
-        getValidChapterDirNames(chapterName, chapterScanlator, chapterUrl).asSequence()
-            .mapNotNull { mangaDir?.findFile(it) }
-            .firstOrNull()
+        val mangaDir = findMangaDir(mangaTitle, source) ?: return@withContext null
+        val validNames = getValidChapterDirNames(chapterName, chapterScanlator, chapterUrl)
+
+        for (name in validNames) {
+            val file = mangaDir.findFile(name)
+            if (file != null) return@withContext file
+        }
+
+        val sanitizedName = DiskUtil.buildValidFilename(chapterName)
+        val fileByName = mangaDir.findFile(chapterName) ?: mangaDir.findFile(sanitizedName)
+        if (fileByName != null) return@withContext fileByName
+
+        val files = mangaDir.listFiles().orEmpty()
+            .filter { !it.name.orEmpty().startsWith('.') && it.name != "cover.jpg" }
+
+        val matchedFile = files.find { file ->
+            val fileNameNoExt = file.nameWithoutExtension.orEmpty()
+            val fileNameRaw = file.name.orEmpty()
+
+            validNames.any { it.equals(fileNameNoExt, ignoreCase = true) || it.equals(fileNameRaw, ignoreCase = true) } ||
+                fileNameNoExt.equals(chapterName, ignoreCase = true) ||
+                fileNameNoExt.equals(sanitizedName, ignoreCase = true) ||
+                fileNameRaw.equals(chapterName, ignoreCase = true) ||
+                fileNameRaw.equals(sanitizedName, ignoreCase = true)
+        }
+        if (matchedFile != null) return@withContext matchedFile
+
+        val chapterNum = ChapterRecognition.parseChapterNumber(mangaTitle, chapterName, -1.0)
+        if (chapterNum >= 0) {
+            val numMatch = files.find { file ->
+                val fileNum = ChapterRecognition.parseChapterNumber(mangaTitle, file.nameWithoutExtension.orEmpty(), -1.0)
+                fileNum >= 0 && fileNum == chapterNum
+            }
+            if (numMatch != null) return@withContext numMatch
+        }
+
+        null
     }
 
     /**
@@ -271,7 +331,11 @@ class DownloadProvider(
         source: Source,
     ): Pair<UniFile?, List<UniFile>> = withContext(Dispatchers.IO) {
         val mangaDir = findMangaDir(manga.title, source) ?: return@withContext null to emptyList()
-        mangaDir to findChapterDirs(chapters, mangaDir).values.toList()
+        val dirMap = chapters.mapNotNull { chapter ->
+            val dir = findChapterDir(chapter.name, chapter.scanlator, chapter.url, manga.title, source)
+            dir?.let { chapter.id to it }
+        }.toMap()
+        mangaDir to dirMap.values.toList()
     }
 
     /**

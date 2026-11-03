@@ -131,3 +131,8 @@ SET remote_name = :remoteName,
     remote_date_upload = coalesce(:remoteDateUpload, remote_date_upload),
     remote_memo = :remoteMemo
 WHERE id = :id;
+
+updateUrl:
+UPDATE OR REPLACE chapter
+SET remote_url = :remoteUrl
+WHERE id = :id;

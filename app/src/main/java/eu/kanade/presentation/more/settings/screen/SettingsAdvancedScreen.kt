@@ -183,7 +183,7 @@ object SettingsAdvancedScreen : SearchableSettings {
                     title = stringResource(MR.strings.pref_invalidate_download_cache),
                     subtitle = stringResource(MR.strings.pref_invalidate_download_cache_summary),
                     onClick = {
-                        context.appGraph.downloadCache.invalidateCache()
+                        context.appGraph.downloadCache.invalidateCache(showNotification = true)
                         context.toast(MR.strings.download_cache_invalidated)
                     },
                 ),

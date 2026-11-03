@@ -44,10 +44,9 @@ object ChapterRecognition {
     private val unwantedWhiteSpace = Regex("""\s(?=extra|special|omake)""")
 
     /**
-     * A volume or season, the short forms only right before the number since "s" also ends words.
-     * Example: Mokushiroku Alice Vol.1 Ch. 4: Misrepresentation -R> 1, The Gamer S3 - Chapter 20 -R> 3
+     * A volume or season, e.g. Vol.1, Volume 2, Season 3, Vol 4.
      */
-    private val volume = Regex("""\b(?:(?:vol(?:ume)?|season)[^a-z0-9]? *|[vs]\.?)([0-9]+(?:\.[0-9]+)?)\b""")
+    private val volume = Regex("""\b(?:vol(?:ume)?|season)[^a-z0-9]? *([0-9]+(?:\.[0-9]+)?)\b""", RegexOption.IGNORE_CASE)
 
     /**
      * Example: Chapter 1.5 Part II -R> b
@@ -77,6 +76,8 @@ object ChapterRecognition {
      */
     private val prologue = Regex("""\b(?:prologue|one.?shot|pilot)\b""")
 
+    private val versionRegex = Regex("""\.\s*v([0-9]+)\b""", RegexOption.IGNORE_CASE)
+
     /**
      * Formats numbers without trailing zeros, with ASCII digits and a dot whatever the locale, e.g. 10.5, 3, 24.005
      */
@@ -93,6 +94,23 @@ object ChapterRecognition {
      */
     private data class RecognizedNumber(val value: Double, val letter: Char? = null) {
         override fun toString(): String = formatter.format(value) + (letter?.toString() ?: "")
+    }
+
+    /**
+     * Recognizes the volume number of a chapter from its name. Returns -1.0 if no volume is found.
+     */
+    fun parseVolumeNumber(mangaTitle: String, chapterName: String): Double {
+        val cleaned = cleanName(mangaTitle, chapterName)
+        val match = volume.find(cleaned) ?: return -1.0
+        return match.groupValues.getOrNull(1)?.toDoubleOrNull() ?: -1.0
+    }
+
+    /**
+     * Recognizes the version number of a chapter from its name (e.g. .v2, .v3). Returns 1 if no version suffix is found.
+     */
+    fun parseVersionNumber(chapterName: String): Int {
+        val match = versionRegex.find(chapterName) ?: return 1
+        return match.groupValues.getOrNull(1)?.toIntOrNull() ?: 1
     }
 
     /**

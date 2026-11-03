@@ -58,6 +58,7 @@ private fun DownloadDropdownMenuItems(
         DownloadAction.NEXT_25_CHAPTERS to pluralStringResource(MR.plurals.download_amount, 25, 25),
         DownloadAction.UNREAD_CHAPTERS to stringResource(MR.strings.download_unread),
         DownloadAction.BOOKMARKED_CHAPTERS to stringResource(MR.strings.download_bookmarked),
+        DownloadAction.NOT_DOWNLOADED to stringResource(MR.strings.download_not_downloaded),
     )
 
     options.map { (downloadAction, string) ->
