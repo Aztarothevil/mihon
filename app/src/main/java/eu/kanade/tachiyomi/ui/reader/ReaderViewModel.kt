@@ -556,36 +556,6 @@ class ReaderViewModel(
     }
 
     private fun downloadNextChapters() {
-        if (downloadAheadAmount == 0) return
-        val manga = manga ?: return
-
-        // Only download ahead if current + next chapter is already downloaded too to avoid jank
-        if (getCurrentChapter()?.pageLoader !is DownloadPageLoader) return
-        val nextChapter = state.value.viewerChapters?.nextChapter?.chapter ?: return
-
-        viewModelScope.launch(Dispatchers.IO) {
-            val isNextChapterDownloaded = downloadManager.isChapterDownloaded(
-                nextChapter.name,
-                nextChapter.scanlator,
-                nextChapter.url,
-                manga.title,
-                manga.source,
-            )
-            if (!isNextChapterDownloaded) return@launch
-
-            val chaptersToDownload = getNextChapters.await(manga.id, nextChapter.id).run {
-                if (readerPreferences.skipDupe.get()) {
-                    removeDuplicates(nextChapter)
-                } else {
-                    this
-                }
-            }.take(downloadAheadAmount)
-
-            downloadManager.downloadChapters(
-                manga,
-                chaptersToDownload,
-            )
-        }
     }
 
     /**

@@ -201,9 +201,9 @@ private fun DownloadedIndicator(
 ) {
     var isMenuExpanded by remember { mutableStateOf(false) }
     val themeColor = if (fromDifferentSource) {
-        MaterialTheme.colorScheme.tertiary
-    } else {
         MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
     }
 
     Box(

@@ -390,6 +390,7 @@ private fun MangaScreenSmallImpl(
                             manga = state.manga,
                             source = remember { state.source },
                             isStubSource = remember { state.source is StubSource },
+                            storagePath = state.storagePath,
                             onCoverClick = onCoverClicked,
                             doSearch = onSearch,
                         )
@@ -620,6 +621,7 @@ fun MangaScreenLargeImpl(
                             manga = state.manga,
                             source = remember { state.source },
                             isStubSource = remember { state.source is StubSource },
+                            storagePath = state.storagePath,
                             onCoverClick = onCoverClicked,
                             doSearch = onSearch,
                         )

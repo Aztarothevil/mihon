@@ -86,6 +86,7 @@ import mihon.icons.materialsymbols.rounded.Check
 import mihon.icons.materialsymbols.rounded.Close
 import mihon.icons.materialsymbols.rounded.DoneAll
 import mihon.icons.materialsymbols.rounded.Favorite
+import mihon.icons.materialsymbols.rounded.Folder
 import mihon.icons.materialsymbols.rounded.HourglassEmpty
 import mihon.icons.materialsymbols.rounded.Person
 import mihon.icons.materialsymbols.rounded.Public
@@ -121,6 +122,7 @@ fun MangaInfoBox(
     onCoverClick: () -> Unit,
     doSearch: (query: String, global: Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    storagePath: String? = null,
 ) {
     Box(modifier = modifier) {
         // Backdrop
@@ -155,6 +157,7 @@ fun MangaInfoBox(
                     manga = manga,
                     source = source,
                     isStubSource = isStubSource,
+                    storagePath = storagePath,
                     onCoverClick = onCoverClick,
                     doSearch = doSearch,
                 )
@@ -164,6 +167,7 @@ fun MangaInfoBox(
                     manga = manga,
                     source = source,
                     isStubSource = isStubSource,
+                    storagePath = storagePath,
                     onCoverClick = onCoverClick,
                     doSearch = doSearch,
                 )
@@ -348,6 +352,7 @@ private fun MangaAndSourceTitlesLarge(
     manga: Manga,
     source: Source,
     isStubSource: Boolean,
+    storagePath: String?,
     onCoverClick: () -> Unit,
     doSearch: (query: String, global: Boolean) -> Unit,
 ) {
@@ -374,6 +379,7 @@ private fun MangaAndSourceTitlesLarge(
             status = manga.status,
             source = source,
             isStubSource = isStubSource,
+            storagePath = storagePath,
             doSearch = doSearch,
             textAlign = TextAlign.Center,
         )
@@ -386,6 +392,7 @@ private fun MangaAndSourceTitlesSmall(
     manga: Manga,
     source: Source,
     isStubSource: Boolean,
+    storagePath: String?,
     onCoverClick: () -> Unit,
     doSearch: (query: String, global: Boolean) -> Unit,
 ) {
@@ -417,6 +424,7 @@ private fun MangaAndSourceTitlesSmall(
                 status = manga.status,
                 source = source,
                 isStubSource = isStubSource,
+                storagePath = storagePath,
                 doSearch = doSearch,
             )
         }
@@ -431,6 +439,7 @@ private fun ColumnScope.MangaContentInfo(
     status: Long,
     source: Source,
     isStubSource: Boolean,
+    storagePath: String?,
     doSearch: (query: String, global: Boolean) -> Unit,
     textAlign: TextAlign? = LocalTextStyle.current.textAlign,
 ) {
@@ -561,6 +570,34 @@ private fun ColumnScope.MangaContentInfo(
                 },
                 overflow = TextOverflow.Ellipsis,
                 maxLines = 1,
+            )
+        }
+    }
+
+    if (!storagePath.isNullOrBlank()) {
+        Spacer(modifier = Modifier.height(2.dp))
+        Row(
+            modifier = Modifier.secondaryItemAlpha(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = MaterialSymbols.Rounded.Folder,
+                contentDescription = null,
+                modifier = Modifier
+                    .padding(end = 4.dp)
+                    .size(16.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                text = storagePath,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                overflow = TextOverflow.Ellipsis,
+                maxLines = 2,
+                modifier = Modifier.clickableNoIndication(
+                    onLongClick = { context.copyToClipboard(storagePath, storagePath) },
+                    onClick = { context.copyToClipboard(storagePath, storagePath) },
+                ),
             )
         }
     }

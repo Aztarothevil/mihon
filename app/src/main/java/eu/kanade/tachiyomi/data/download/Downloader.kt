@@ -352,7 +352,7 @@ class Downloader(
      * @param autoStart whether to start the downloader after enqueing the chapters.
      * @return true if the downloader should be started.
      */
-    suspend fun queueChapters(manga: Manga, chapters: List<Chapter>, autoStart: Boolean): Boolean {
+    suspend fun queueChapters(manga: Manga, chapters: List<Chapter>, autoStart: Boolean, prepend: Boolean = false): Boolean {
         if (chapters.isEmpty()) return false
 
         val source = sourceManager.get(manga.source) as? HttpSource ?: return false
@@ -374,7 +374,17 @@ class Downloader(
         }
 
         if (chaptersToQueue.isNotEmpty()) {
-            addAllToQueue(chaptersToQueue)
+            logcat(LogPriority.INFO) { "[DND Stage 3] Queueing ${chaptersToQueue.size} chapters for download in '${manga.title}' (prepend=$prepend)" }
+            if (prepend) {
+                _queueState.update { queue ->
+                    val newIds = chaptersToQueue.mapTo(HashSet()) { it.chapter.id }
+                    chaptersToQueue.onEach { it.status = Download.State.QUEUE }
+                    store.addAll(chaptersToQueue)
+                    chaptersToQueue + queue.filter { it.chapter.id !in newIds }
+                }
+            } else {
+                addAllToQueue(chaptersToQueue)
+            }
 
             // Start downloader if needed
             if (autoStart && wasEmpty) {
@@ -426,6 +436,7 @@ class Downloader(
      * @param pagesStarted completed once every page has a slot.
      */
     private suspend fun downloadChapter(download: Download, slots: Semaphore, pagesStarted: CompletableDeferred<Unit>) {
+        logcat(LogPriority.INFO) { "[DND Stage 4] Starting download for chapter '${download.chapter.name}' (id=${download.chapter.id}) in '${download.manga.title}'" }
         val mangaDir = provider.getMangaDir(download.manga.title, download.source, download.manga.favorite).getOrElse { e ->
             download.status = Download.State.ERROR
             notifier.onError(e.message, download.chapter.name, download.manga.title, download.manga.id)

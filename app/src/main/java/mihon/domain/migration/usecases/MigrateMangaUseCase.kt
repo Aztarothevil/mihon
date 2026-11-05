@@ -33,6 +33,7 @@ import tachiyomi.domain.chapter.service.ChapterRecognition
 import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.manga.model.MangaUpdate
 import tachiyomi.domain.source.service.SourceManager
+import tachiyomi.domain.storage.service.StorageManager
 import tachiyomi.domain.track.interactor.GetTracks
 import tachiyomi.domain.track.interactor.UpsertTrack
 import kotlin.time.Clock
@@ -55,6 +56,7 @@ class MigrateMangaUseCase(
     private val upsertTrack: UpsertTrack,
     private val coverCache: CoverCache,
     private val updateMangaFromRemote: UpdateMangaFromRemote,
+    private val storageManager: StorageManager,
 ) {
     private val enhancedServices by lazy { trackerManager.trackers.filterIsInstance<EnhancedTracker>() }
 
@@ -144,6 +146,10 @@ class MigrateMangaUseCase(
             }
 
             updateManga.awaitAll(listOfNotNull(currentMangaUpdate, targetMangaUpdate))
+            if (replace) {
+                val prevMangaChapters = getChaptersByMangaId.await(current.id)
+                chapterRepository.updateFromRemote(removedIds = prevMangaChapters.map { it.id }, added = emptyList(), updated = emptyList())
+            }
         } catch (e: Throwable) {
             if (e is CancellationException) {
                 throw e
@@ -157,19 +163,30 @@ class MigrateMangaUseCase(
         currentSource: Source,
         targetSource: Source,
     ) {
+        logcat(LogPriority.INFO) { "MigrateMangaUseCase: Starting downloaded chapter migration from '${current.title}' (${currentSource.name}) to '${target.title}' (${targetSource.name})" }
+
         val downloadMangaDir = downloadProvider.findMangaDir(current.title, currentSource)
             ?: downloadProvider.findSourceDir(currentSource)?.findFile(DiskUtil.buildValidFilename(current.title))
             ?: downloadProvider.findSourceDir(currentSource)?.listFiles()?.firstOrNull {
                 it.isDirectory && (it.name.equals(current.title, ignoreCase = true) || it.name.equals(DiskUtil.buildValidFilename(current.title), ignoreCase = true))
             }
-            ?: return
-
-        if (!downloadMangaDir.exists() || !downloadMangaDir.isDirectory) return
+            ?: storageManager.getFinishedSourceDirectory()?.findFile(current.title)
+            ?: storageManager.getFinishedSourceDirectory()?.findFile(DiskUtil.buildValidFilename(current.title))
+            ?: storageManager.getLocalSourceDirectory()?.findFile(current.title)
+            ?: storageManager.getLocalSourceDirectory()?.findFile(DiskUtil.buildValidFilename(current.title))
+        if (downloadMangaDir == null || !downloadMangaDir.exists() || !downloadMangaDir.isDirectory) {
+            logcat(LogPriority.WARN) { "MigrateMangaUseCase: Source download directory not found or not folder for '${current.title}'" }
+            return
+        }
 
         val targetMangaDir = downloadProvider.findMangaDir(target.title, targetSource)
             ?: downloadProvider.getMangaDir(target.title, targetSource).getOrNull()
             ?: downloadProvider.findSourceDir(targetSource)?.createDirectory(DiskUtil.buildValidFilename(target.title))
-            ?: return
+
+        if (targetMangaDir == null) {
+            logcat(LogPriority.WARN) { "MigrateMangaUseCase: Target download directory could not be created/found for '${target.title}'" }
+            return
+        }
 
         val prevMangaChapters = getChaptersByMangaId.await(current.id)
         val targetMangaChapters = getChaptersByMangaId.await(target.id)
@@ -319,7 +336,7 @@ class MigrateMangaUseCase(
                 val chNum = prevMatch?.chapterNumber ?: ChapterRecognition.parseChapterNumber(target.title, fileNameNoExt, -1.0)
                 val newUnregisteredChapter = Chapter.create().copy(
                     mangaId = target.id,
-                    url = prevMatch?.url ?: "${target.url}#migrated_${DiskUtil.hashKeyForDisk(fileNameNoExt)}",
+                    url = "${target.url}#migrated_${DiskUtil.hashKeyForDisk(fileNameNoExt)}",
                     name = prevMatch?.name ?: fileNameNoExt,
                     chapterNumber = if (chNum >= 0) chNum else -1.0,
                     scanlator = prevMatch?.scanlator,
@@ -337,14 +354,16 @@ class MigrateMangaUseCase(
             chapterRepository.updateFromRemote(emptyList(), unregisteredChapters, emptyList())
         }
 
-        downloadManager.invalidateCache()
+        downloadManager.setMangaChapterDirs(current, emptySet())
+        val targetFileNamesNoExt = targetDownloadedFiles.map { if (it.isDirectory) it.name.orEmpty() else it.nameWithoutExtension.orEmpty() }.toSet()
+        downloadManager.setMangaChapterDirs(target, targetFileNamesNoExt)
     }
 
     private fun moveUniFile(sourceFile: UniFile, targetDir: UniFile, newName: String) {
         try {
             if (sourceFile.name == newName && sourceFile.parentFile?.uri == targetDir.uri) return
 
-            if (sourceFile.renameTo(newName)) {
+            if (sourceFile.parentFile?.uri == targetDir.uri && sourceFile.renameTo(newName)) {
                 return
             }
 

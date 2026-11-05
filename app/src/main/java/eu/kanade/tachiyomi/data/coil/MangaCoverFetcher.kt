@@ -155,9 +155,10 @@ class MangaCoverFetcher(
         }
 
         var networkException: Exception? = null
+        val allowNetworkFetch = options.networkCachePolicy.writeEnabled && options.networkCachePolicy != coil3.request.CachePolicy.DISABLED
 
-        // 4. Try fetching directly from network source if URL is available
-        if (!url.isNullOrBlank() && !isOtakutecaUrl) {
+        // 4. Try fetching directly from network source if URL is available and network fetch is allowed
+        if (!url.isNullOrBlank() && !isOtakutecaUrl && allowNetworkFetch) {
             try {
                 val response = executeNetworkRequest()
                 val responseBody = checkNotNull(response.body) { "Null response source" }

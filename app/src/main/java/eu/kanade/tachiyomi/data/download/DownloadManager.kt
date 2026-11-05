@@ -147,8 +147,8 @@ class DownloadManager(
      * @param chapters the list of chapters to enqueue.
      * @param autoStart whether to start the downloader after enqueing the chapters.
      */
-    suspend fun downloadChapters(manga: Manga, chapters: List<Chapter>, autoStart: Boolean = true) {
-        if (downloader.queueChapters(manga, chapters, autoStart)) {
+    suspend fun downloadChapters(manga: Manga, chapters: List<Chapter>, autoStart: Boolean = true, prepend: Boolean = true) {
+        if (downloader.queueChapters(manga, chapters, autoStart, prepend)) {
             startDownloads()
         }
     }
@@ -261,8 +261,12 @@ class DownloadManager(
         cache.refreshManga(manga, mangaDir)
     }
 
-    fun setMangaChapterDirs(manga: Manga, chapterDirs: Set<String>) {
+    suspend fun setMangaChapterDirs(manga: Manga, chapterDirs: Set<String>) {
         cache.setMangaChapterDirs(manga, chapterDirs)
+    }
+
+    suspend fun clearChapterDownloadStatus(chapter: Chapter, manga: Manga) {
+        cache.removeChapterExplicit(chapter, manga)
     }
 
     /**

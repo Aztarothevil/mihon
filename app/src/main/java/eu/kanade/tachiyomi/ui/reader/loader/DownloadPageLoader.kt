@@ -10,7 +10,9 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.ui.reader.model.ReaderChapter
 import eu.kanade.tachiyomi.ui.reader.model.ReaderPage
 import mihon.core.archive.archiveReader
+import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.domain.manga.model.Manga
+import tachiyomi.i18n.MR
 import uy.kohesive.injekt.injectLazy
 
 /**
@@ -39,7 +41,11 @@ internal class DownloadPageLoader(
             manga.title,
             source,
         )
-        return if (chapterPath?.isFile == true) {
+        if (chapterPath == null || !chapterPath.exists()) {
+            downloadManager.deleteChapters(listOf(dbChapter), manga, source)
+            error(context.stringResource(MR.strings.chapter_not_found))
+        }
+        return if (chapterPath.isFile) {
             getPagesFromArchive(chapterPath)
         } else {
             getPagesFromDirectory()

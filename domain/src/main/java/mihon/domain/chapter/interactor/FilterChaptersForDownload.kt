@@ -29,23 +29,7 @@ class FilterChaptersForDownload(
      * @return A list of chapters that should be downloaded
      */
     suspend fun await(manga: Manga, newChapters: List<Chapter>): List<Chapter> {
-        if (
-            newChapters.isEmpty() ||
-            !downloadPreferences.downloadNewChapters.get() ||
-            !manga.shouldDownloadNewChapters()
-        ) {
-            return emptyList()
-        }
-
-        if (!downloadPreferences.downloadNewUnreadChaptersOnly.get()) return newChapters
-
-        val readChapterNumbers = getChaptersByMangaId.await(manga.id)
-            .asSequence()
-            .filter { it.read && it.isRecognizedNumber }
-            .map { it.chapterNumber }
-            .toSet()
-
-        return newChapters.filterNot { it.chapterNumber in readChapterNumbers }
+        return emptyList()
     }
 
     /**

@@ -13,6 +13,7 @@ import kotlinx.coroutines.withContext
 import mihon.core.archive.archiveReader
 import mihon.core.archive.epubReader
 import mihon.data.cache.ChapterCache
+import logcat.LogPriority
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.manga.model.Manga
@@ -46,7 +47,7 @@ class ChapterLoader(
 
         chapter.state = ReaderChapter.State.Loading
         withContext(Dispatchers.IO) {
-            logcat { "Loading pages for ${chapter.chapter.name}" }
+            logcat(LogPriority.INFO) { "[OpenChapter Stage 1] Loading chapter '${chapter.chapter.name}' (id=${chapter.chapter.id}) for manga '${manga.title}'" }
             try {
                 val loader = getPageLoader(chapter)
                 chapter.pageLoader = loader
@@ -65,7 +66,9 @@ class ChapterLoader(
                 }
 
                 chapter.state = ReaderChapter.State.Loaded(pages)
+                logcat(LogPriority.INFO) { "[OpenChapter Stage 4] Successfully loaded ${pages.size} pages for chapter '${chapter.chapter.name}'" }
             } catch (e: Throwable) {
+                logcat(LogPriority.ERROR, e) { "[OpenChapter Stage Error] Failed to load chapter '${chapter.chapter.name}'" }
                 chapter.state = ReaderChapter.State.Error(e)
                 throw e
             }
@@ -84,21 +87,32 @@ class ChapterLoader(
      */
     private suspend fun getPageLoader(chapter: ReaderChapter): PageLoader {
         val dbChapter = chapter.chapter
-        val isDownloaded = downloadManager.isChapterDownloadedOnDisk(
+        logcat(LogPriority.INFO) { "[OpenChapter Stage 2] Checking physical file on disk for chapter '${dbChapter.name}'" }
+        val chapterDir = downloadProvider.findChapterDir(
             dbChapter.name,
             dbChapter.scanlator,
             dbChapter.url,
             manga.title,
             source,
         )
-        return when {
-            isDownloaded -> DownloadPageLoader(
+        val fileExists = chapterDir != null && chapterDir.exists()
+
+        if (fileExists) {
+            logcat(LogPriority.INFO) { "[OpenChapter Stage 3] Physical file found at '${chapterDir?.uri}'. Using DownloadPageLoader" }
+            return DownloadPageLoader(
                 chapter,
                 manga,
                 source,
                 downloadManager,
                 downloadProvider,
             )
+        }
+
+        logcat(LogPriority.WARN) { "[OpenChapter Stage 3] Physical file NOT found on disk for '${dbChapter.name}'. Resetting downloaded status in DB/cache and blocking network stream" }
+        downloadManager.clearChapterDownloadStatus(dbChapter, manga)
+        downloadManager.deleteChapters(listOf(dbChapter), manga, source)
+
+        return when {
             source is LocalSource -> source.getFormat(chapter.chapter.toSChapter()).let { format ->
                 when (format) {
                     is Format.Directory -> DirectoryPageLoader(format.file)
@@ -106,7 +120,7 @@ class ChapterLoader(
                     is Format.Epub -> EpubPageLoader(format.file.epubReader(context))
                 }
             }
-            source is HttpSource -> HttpPageLoader(chapter, source, chapterCache, appScope, canLoadAhead)
+            source is HttpSource -> error(context.stringResource(MR.strings.chapter_not_found))
             source is StubSource -> error(context.stringResource(MR.strings.source_not_installed, source.toString()))
             else -> error(context.stringResource(MR.strings.loader_not_implemented_error))
         }

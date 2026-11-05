@@ -92,6 +92,7 @@ fun MangaCompactGridItem(
                         .fillMaxWidth()
                         .alpha(if (isSelected) GRID_SELECTED_COVER_ALPHA else coverAlpha),
                     data = coverData,
+                    allowNetwork = false,
                 )
             },
             badgesStart = coverBadgeStart,
@@ -199,6 +200,7 @@ fun MangaComfortableGridItem(
                             .fillMaxWidth()
                             .alpha(if (isSelected) GRID_SELECTED_COVER_ALPHA else coverAlpha),
                         data = coverData,
+                        allowNetwork = false,
                     )
                 },
                 badgesStart = coverBadgeStart,
@@ -355,6 +357,7 @@ fun MangaListItem(
                 .fillMaxHeight()
                 .alpha(coverAlpha),
             data = coverData,
+            allowNetwork = false,
         )
         Text(
             text = title,
