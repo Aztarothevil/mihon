@@ -251,15 +251,41 @@ class MangaViewModel(
         downloadCache.changes,
         downloadManager.queueState,
     ) { (manga, chapters), _, _ ->
-        logcat(LogPriority.INFO) { "[OpenManga Stage 1 & 2] Loaded manga '${manga.title}' (id=$mangaId) and ${chapters.size} chapters from SQLite DB" }
         val source = sourceManager.getOrStub(manga.source)
-        val downloadMangaDir = downloadProvider.findMangaDir(manga.title, source)
+        logcat(LogPriority.INFO) { "[OpenManga Stage 1 & 2] Loaded manga '${manga.title}' (id=$mangaId, source='${source.name}', sourceId=${manga.source}) and ${chapters.size} chapters from SQLite DB" }
+
+        val activeSourceDir = downloadProvider.findSourceDir(source)
+        val expectedMangaDir = activeSourceDir?.findFile(manga.title)
+            ?: activeSourceDir?.findFile(DiskUtil.buildValidFilename(manga.title))
+            ?: downloadProvider.getMangaDir(manga.title, source).getOrNull()
+
+        var downloadMangaDir = expectedMangaDir
+            ?: downloadProvider.findMangaDir(manga.title, source)
             ?: storageManager.getFinishedSourceDirectory()?.findFile(manga.title)
             ?: storageManager.getFinishedSourceDirectory()?.findFile(DiskUtil.buildValidFilename(manga.title))
             ?: storageManager.getLocalSourceDirectory()?.findFile(manga.title)
             ?: storageManager.getLocalSourceDirectory()?.findFile(DiskUtil.buildValidFilename(manga.title))
             ?: storageManager.getLocalSourceDirectory()?.findFile(manga.url)
             ?: localSourceFileSystem.getMangaDirectory(manga.url)
+
+        if (!manga.isLocal() && !isMangaInFinishedSync(manga) && expectedMangaDir != null && downloadMangaDir != null && downloadMangaDir.uri != expectedMangaDir.uri && downloadMangaDir.exists()) {
+            logcat(LogPriority.INFO) { "[OpenManga Path Sync] Moving physical files from old path '${downloadMangaDir.uri}' to active source path '${expectedMangaDir.uri}'" }
+            val filesToMove = downloadMangaDir.listFiles().orEmpty()
+                .filter { !it.name.orEmpty().startsWith('.') && it.name != "cover.jpg" }
+            if (filesToMove.isNotEmpty()) {
+                filesToMove.forEach { file ->
+                    moveUniFile(file, expectedMangaDir, file.name.orEmpty())
+                }
+                runCatching { downloadMangaDir.delete() }
+                downloadMangaDir = expectedMangaDir
+
+                val targetFileNamesNoExt = expectedMangaDir.listFiles().orEmpty()
+                    .filter { !it.name.orEmpty().startsWith('.') && it.name != "cover.jpg" }
+                    .map { if (it.isDirectory) it.name.orEmpty() else it.nameWithoutExtension.orEmpty() }
+                    .toSet()
+                downloadManager.setMangaChapterDirs(manga, targetFileNamesNoExt)
+            }
+        }
 
         val path = downloadMangaDir?.displayablePath
         logcat(LogPriority.INFO) { "[OpenManga Stage 3 & 4] Storage path: '$path'. Building ${chapters.size} UI chapter items" }
@@ -721,7 +747,7 @@ class MangaViewModel(
             val activeDownload = queuedDownloads[chapter.id]
             val isDownloadedOnDisk = chapter.id in downloadedChapterIds
             val downloadedInOther = if (isDownloadedOnDisk) false else downloadManager.isChapterDownloadedInAnyOtherSource(chapter.name, chapter.scanlator, chapter.url, manga.title, manga.source)
-            val isFromDifferent = isLocal || isFinished || chapter.url.contains("#migrated_") || downloadedInOther
+            val isWithoutSource = isLocal || isFinished || chapter.url.contains("#migrated_") || chapter.url.contains("#downloaded_") || downloadedInOther
 
             val downloaded = isDownloadedOnDisk || downloadedInOther
             val downloadState = when {
@@ -730,12 +756,12 @@ class MangaViewModel(
                 else -> Download.State.NOT_DOWNLOADED
             }
 
-            logcat(LogPriority.INFO) { "[StatusUpdate] Chapter '${chapter.name}' (id=${chapter.id}) computed status -> $downloadState (onDisk=$isDownloadedOnDisk, fromDifferentSource=$isFromDifferent)" }
+            logcat(LogPriority.INFO) { "[StatusUpdate] Chapter '${chapter.name}' (id=${chapter.id}) computed status -> $downloadState (onDisk=$isDownloadedOnDisk, fromDifferentSource=$isWithoutSource)" }
 
             ChapterList.Item(
                 chapter = chapter,
                 downloadState = downloadState,
-                fromDifferentSource = isFromDifferent,
+                fromDifferentSource = isWithoutSource,
             )
         }
     }
@@ -1501,12 +1527,11 @@ class MangaViewModel(
             if (matchedChapter != null) {
                 matchedDbChapterIds.add(matchedChapter.id)
                 logcat(LogPriority.INFO) { "[PTR Stage 5] Matched physical file '${fileNameRaw}' -> DB chapter id=${matchedChapter.id}, name='${matchedChapter.name}'" }
-                if (matchedChapter.url != fileUrl && (manga.isLocal() || isMangaInFinished(manga) || matchedChapter.url.contains(fileNameNoExt) || matchedChapter.url.contains("#migrated_"))) {
-                    val targetUrl = if (matchedChapter.url.contains("#migrated_") && !fileUrl.contains("#migrated_")) {
-                        "$fileUrl#migrated_${DiskUtil.hashKeyForDisk(fileNameNoExt)}"
-                    } else {
-                        fileUrl
-                    }
+                val targetUrl = when {
+                    matchedChapter.url.contains("#migrated_") -> if (fileUrl.contains("#migrated_")) fileUrl else "$fileUrl#migrated_${DiskUtil.hashKeyForDisk(fileNameNoExt)}"
+                    else -> if (fileUrl.contains("#downloaded_")) fileUrl else "$fileUrl#downloaded_${DiskUtil.hashKeyForDisk(fileNameNoExt)}"
+                }
+                if (matchedChapter.url != targetUrl) {
                     pendingUrlUpdates.add(matchedChapter.id to targetUrl)
                 }
                 if (matchedChapter.name != fileNameNoExt || matchedChapter.sourceOrder != calculatedOrder) {
@@ -1528,7 +1553,7 @@ class MangaViewModel(
                 val oldMatch = dbChapters.find { it.chapterNumber >= 0 && it.chapterNumber == fileNum }
                 val newChapter = Chapter.create().copy(
                     mangaId = manga.id,
-                    url = fileUrl,
+                    url = "$fileUrl#downloaded_${DiskUtil.hashKeyForDisk(fileNameNoExt)}",
                     name = fileNameNoExt,
                     chapterNumber = if (fileNum >= 0) fileNum else -1.0,
                     sourceOrder = calculatedOrder,
@@ -1686,6 +1711,8 @@ class MangaViewModel(
                             }
                         }
 
+
+
                         val chNum = if (fileNum >= 0) fileNum else (matchedChapter?.chapterNumber?.takeIf { it >= 0 } ?: -1.0)
 
                         val paddedStr = formatPaddedChapterNumber(chNum, fileNameNoExt)
@@ -1710,16 +1737,22 @@ class MangaViewModel(
 
                         val newDbName = targetName.removeSuffix(ext)
                         if (matchedChapter != null) {
-                            if (manga.isLocal() || matchedChapter.url.contains(fileNameNoExt) || matchedChapter.url.contains(fileNameRaw) || matchedChapter.url.contains("#migrated_")) {
-                                var newUrl = matchedChapter.url
-                                    .replace(fileNameRaw, targetName)
-                                    .replace(fileNameNoExt, newDbName)
-                                if (matchedChapter.url.contains("#migrated_") && !newUrl.contains("#migrated_")) {
+                            var newUrl = matchedChapter.url
+                                .replace(fileNameRaw, targetName)
+                                .replace(fileNameNoExt, newDbName)
+
+                            if (matchedChapter.url.contains("#migrated_")) {
+                                if (!newUrl.contains("#migrated_")) {
                                     newUrl = "$newUrl#migrated_${DiskUtil.hashKeyForDisk(newDbName)}"
                                 }
-                                if (newUrl != matchedChapter.url) {
-                                    pendingUrlUpdates.add(matchedChapter.id to newUrl)
+                            } else {
+                                if (!newUrl.contains("#downloaded_")) {
+                                    newUrl = "$newUrl#downloaded_${DiskUtil.hashKeyForDisk(newDbName)}"
                                 }
+                            }
+
+                            if (newUrl != matchedChapter.url) {
+                                pendingUrlUpdates.add(matchedChapter.id to newUrl)
                             }
 
                             remoteUpdates.add(
