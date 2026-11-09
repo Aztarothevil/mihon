@@ -492,23 +492,18 @@ class ReaderViewModel(
             return
         }
 
-        if (chapter.pageLoader?.isLocal == false) {
-            val manga = manga ?: return
-            val dbChapter = chapter.chapter
-            val source = state.value.source ?: return
-            val isDownloaded = downloadManager.isChapterDownloadedOnDisk(
-                dbChapter.name,
-                dbChapter.scanlator,
-                dbChapter.url,
-                manga.title,
-                source,
-            )
-            if (isDownloaded) {
-                chapter.state = ReaderChapter.State.Wait
-            }
-        }
-
-        if (chapter.state != ReaderChapter.State.Wait && chapter.state !is ReaderChapter.State.Error) {
+        val manga = manga ?: return
+        val dbChapter = chapter.chapter
+        val source = state.value.source ?: return
+        val isDownloaded = downloadManager.isChapterDownloadedOnDisk(
+            dbChapter.name,
+            dbChapter.scanlator,
+            dbChapter.url,
+            manga.title,
+            source,
+        )
+        if (!isDownloaded) {
+            logcat { "Preload skipped for ${dbChapter.name} - not downloaded on disk" }
             return
         }
 

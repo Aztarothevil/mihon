@@ -743,7 +743,7 @@ class MangaViewModel(
         val isFinished = isMangaInFinishedSync(manga)
         val queuedDownloads = if (isLocal) emptyMap() else downloadManager.getQueuedDownloadsByChapterId()
         val downloadedChapterIds = downloadManager.getDownloadedChapterIds(this, manga)
-        return map { chapter ->
+        val rawItems = map { chapter ->
             val activeDownload = queuedDownloads[chapter.id]
             val isDownloadedOnDisk = chapter.id in downloadedChapterIds
             val downloadedInOther = if (isDownloadedOnDisk) false else downloadManager.isChapterDownloadedInAnyOtherSource(chapter.name, chapter.scanlator, chapter.url, manga.title, manga.source)
@@ -756,14 +756,35 @@ class MangaViewModel(
                 else -> Download.State.NOT_DOWNLOADED
             }
 
-            logcat(LogPriority.INFO) { "[StatusUpdate] Chapter '${chapter.name}' (id=${chapter.id}) computed status -> $downloadState (onDisk=$isDownloadedOnDisk, fromDifferentSource=$isWithoutSource)" }
-
             ChapterList.Item(
                 chapter = chapter,
                 downloadState = downloadState,
                 fromDifferentSource = isWithoutSource,
             )
         }
+
+        val chapterSort = getChapterSort(manga)
+        return rawItems
+            .groupBy { item ->
+                if (item.chapter.chapterNumber >= 0) {
+                    "num_${item.chapter.chapterNumber}"
+                } else {
+                    "name_${item.chapter.name.lowercase().trim()}"
+                }
+            }
+            .values
+            .map { group ->
+                group.maxByOrNull { item ->
+                    var score = 0
+                    if (item.downloadState == Download.State.DOWNLOADED) score += 100
+                    if (item.chapter.read) score += 50
+                    if (item.chapter.bookmark) score += 20
+                    if (item.chapter.lastPageRead > 0) score += 10
+                    if (!item.chapter.url.contains("#migrated_")) score += 5
+                    score
+                } ?: group.first()
+            }
+            .sortedWith { i1, i2 -> chapterSort(i1.chapter, i2.chapter) }
     }
 
     /**
@@ -1729,6 +1750,8 @@ class MangaViewModel(
                             version++
                         }
                         usedNames.add(targetName)
+
+                        logcat(LogPriority.INFO) { "[Sanitize Mapping] '$fileNameRaw' --> '$targetName' (fileNum=$fileNum, matchedDbId=${matchedChapter?.id}, matchedDbName='${matchedChapter?.name}')" }
 
                         if (targetName != fileNameRaw) {
                             logcat(LogPriority.INFO) { "[Sanitize Stage 4] Renaming file physically on disk: '$fileNameRaw' -> '$targetName'" }

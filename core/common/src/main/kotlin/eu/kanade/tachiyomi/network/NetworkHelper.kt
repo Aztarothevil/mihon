@@ -16,6 +16,8 @@ import java.io.File
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
+private const val SHOW_OKHTTP_LOGS = false
+
 @Inject
 @SingleIn(AppScope::class)
 class NetworkHelper(
@@ -41,7 +43,7 @@ class NetworkHelper(
             .addInterceptor(UncaughtExceptionInterceptor())
             .addInterceptor(UserAgentInterceptor(::defaultUserAgentProvider))
 
-        if (preferences.verboseLogging.get()) {
+        if (SHOW_OKHTTP_LOGS && preferences.verboseLogging.get()) {
             val httpLoggingInterceptor = HttpLoggingInterceptor().apply {
                 level = HttpLoggingInterceptor.Level.HEADERS
                 if (preferences.redactSensitiveHeaders.get()) {
