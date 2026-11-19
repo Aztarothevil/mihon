@@ -1,17 +1,21 @@
 package mihon.domain.migration.usecases
 
+import android.content.Context
 import com.hippo.unifile.UniFile
 import dev.zacsweers.metro.Inject
 import eu.kanade.domain.manga.interactor.UpdateManga
 import eu.kanade.domain.manga.model.hasCustomCover
 import eu.kanade.domain.source.service.SourcePreferences
+import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.cache.CoverCache
 import eu.kanade.tachiyomi.data.download.DownloadManager
 import eu.kanade.tachiyomi.data.download.DownloadProvider
+import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.data.track.EnhancedTracker
 import eu.kanade.tachiyomi.data.track.TrackerManager
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.util.storage.DiskUtil
+import eu.kanade.tachiyomi.util.system.notify
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -19,6 +23,7 @@ import logcat.LogPriority
 import mihon.core.metro.AppCoroutineScope
 import mihon.domain.migration.models.MigrationFlag
 import mihon.domain.source.interactor.UpdateMangaFromRemote
+import tachiyomi.core.common.storage.displayablePath
 import tachiyomi.core.common.storage.extension
 import tachiyomi.core.common.storage.nameWithoutExtension
 import tachiyomi.core.common.util.system.logcat
@@ -36,6 +41,8 @@ import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.domain.storage.service.StorageManager
 import tachiyomi.domain.track.interactor.GetTracks
 import tachiyomi.domain.track.interactor.UpsertTrack
+import tachiyomi.source.local.io.LocalSourceFileSystem
+import uy.kohesive.injekt.injectLazy
 import kotlin.time.Clock
 
 @Inject
@@ -56,16 +63,28 @@ class MigrateMangaUseCase(
     private val upsertTrack: UpsertTrack,
     private val coverCache: CoverCache,
     private val updateMangaFromRemote: UpdateMangaFromRemote,
-    private val storageManager: StorageManager,
 ) {
+    private val context: Context by injectLazy()
+    private val storageManager: StorageManager by injectLazy()
+    private val localSourceFileSystem: LocalSourceFileSystem by injectLazy()
     private val enhancedServices by lazy { trackerManager.trackers.filterIsInstance<EnhancedTracker>() }
 
     suspend operator fun invoke(current: Manga, target: Manga, replace: Boolean) {
         val targetSource = sourceManager.get(target.source) ?: return
         val currentSource = sourceManager.get(current.source)
         val flags = sourcePreferences.migrationFlags.get()
+        val notificationId = (target.id xor 0x502).toInt()
 
         try {
+            context.notify(notificationId, Notifications.CHANNEL_COMMON) {
+                setContentTitle("Migrando manga: ${current.title}")
+                setContentText("Iniciando migración a ${targetSource.name}...")
+                setSmallIcon(R.drawable.ic_mihon)
+                setProgress(0, 0, true)
+                setOngoing(true)
+                setOnlyAlertOnce(true)
+            }
+
             updateMangaFromRemote(target, fetchChapters = true).getOrThrow()
 
             // Update chapters read, bookmark and dateFetch
@@ -150,6 +169,15 @@ class MigrateMangaUseCase(
                 val prevMangaChapters = getChaptersByMangaId.await(current.id)
                 chapterRepository.updateFromRemote(removedIds = prevMangaChapters.map { it.id }, added = emptyList(), updated = emptyList())
             }
+
+            context.notify(notificationId, Notifications.CHANNEL_COMMON) {
+                setContentTitle("Migración completada: ${target.title}")
+                setContentText("Se migró exitosamente a ${targetSource.name}")
+                setSmallIcon(R.drawable.ic_mihon)
+                setProgress(0, 0, false)
+                setOngoing(false)
+                setAutoCancel(true)
+            }
         } catch (e: Throwable) {
             if (e is CancellationException) {
                 throw e
@@ -165,31 +193,64 @@ class MigrateMangaUseCase(
     ) {
         logcat(LogPriority.INFO) { "MigrateMangaUseCase: Starting downloaded chapter migration from '${current.title}' to '${target.title}' (${targetSource.name})" }
 
-        val downloadMangaDir = (if (currentSource != null) downloadProvider.findSourceDir(currentSource) else null)
-            ?.findFile(current.title)
-            ?: (if (currentSource != null) downloadProvider.findSourceDir(currentSource) else null)
-                ?.findFile(DiskUtil.buildValidFilename(current.title))
-            ?: (if (currentSource != null) downloadProvider.findMangaDir(current.title, currentSource) else null)
-            ?: storageManager.getFinishedSourceDirectory()?.findFile(current.title)
-            ?: storageManager.getFinishedSourceDirectory()?.findFile(DiskUtil.buildValidFilename(current.title))
-            ?: storageManager.getLocalSourceDirectory()?.findFile(current.title)
-            ?: storageManager.getLocalSourceDirectory()?.findFile(DiskUtil.buildValidFilename(current.title))
+        val downloadsDir = storageManager.getDownloadsDirectory()
+        val mangaDirName = downloadProvider.getMangaDirName(current.title)
+        val validMangaName = DiskUtil.buildValidFilename(current.title)
+
+        var downloadMangaDir: UniFile? = null
+
+        if (currentSource != null) {
+            downloadMangaDir = downloadProvider.findMangaDir(current.title, currentSource)
+        }
+
+        if (downloadMangaDir == null && downloadsDir != null && downloadsDir.exists()) {
+            downloadsDir.listFiles().orEmpty().forEach { srcFolder ->
+                if (downloadMangaDir == null && srcFolder.isDirectory) {
+                    val found = srcFolder.findFile(current.title)
+                        ?: srcFolder.findFile(validMangaName)
+                        ?: srcFolder.findFile(mangaDirName)
+                        ?: srcFolder.listFiles().orEmpty().firstOrNull {
+                            it.isDirectory && (
+                                it.name.equals(current.title, ignoreCase = true) ||
+                                    it.name.equals(validMangaName, ignoreCase = true) ||
+                                    it.name.equals(mangaDirName, ignoreCase = true)
+                                )
+                        }
+                    if (found != null) {
+                        downloadMangaDir = found
+                    }
+                }
+            }
+        }
+
+        if (downloadMangaDir == null) {
+            downloadMangaDir = storageManager.getFinishedSourceDirectory()?.findFile(current.title)
+                ?: storageManager.getFinishedSourceDirectory()?.findFile(validMangaName)
+                ?: storageManager.getFinishedSourceDirectory()?.findFile(mangaDirName)
+                ?: storageManager.getLocalSourceDirectory()?.findFile(current.title)
+                ?: storageManager.getLocalSourceDirectory()?.findFile(validMangaName)
+                ?: storageManager.getLocalSourceDirectory()?.findFile(current.url)
+                ?: localSourceFileSystem.getMangaDirectory(current.url)
+        }
 
         if (downloadMangaDir == null || !downloadMangaDir.exists() || !downloadMangaDir.isDirectory) {
             logcat(LogPriority.WARN) { "MigrateMangaUseCase: Source download directory not found for '${current.title}'" }
             return
         }
 
-        val targetSourceDir = downloadProvider.findSourceDir(targetSource)
-        val targetMangaDir = targetSourceDir?.findFile(target.title)
-            ?: targetSourceDir?.findFile(DiskUtil.buildValidFilename(target.title))
-            ?: downloadProvider.getMangaDir(target.title, targetSource).getOrNull()
-            ?: targetSourceDir?.createDirectory(DiskUtil.buildValidFilename(target.title))
+        val targetMangaDir = downloadProvider.getMangaDir(target.title, targetSource).getOrNull()
+            ?: downloadProvider.findSourceDir(targetSource)?.findFile(target.title)
+            ?: downloadProvider.findSourceDir(targetSource)?.findFile(DiskUtil.buildValidFilename(target.title))
 
         if (targetMangaDir == null) {
             logcat(LogPriority.WARN) { "MigrateMangaUseCase: Target download directory could not be created/found for '${target.title}' in ${targetSource.name}" }
             return
         }
+
+        val sourcePathStr = downloadMangaDir.displayablePath
+        val targetPathStr = targetMangaDir.displayablePath
+
+        logcat(LogPriority.INFO) { "[Migrate Directory] Source path: '$sourcePathStr' ---> Target path: '$targetPathStr'" }
 
         if (downloadMangaDir.uri == targetMangaDir.uri) {
             logcat(LogPriority.INFO) { "MigrateMangaUseCase: Source and target directory URIs are identical. Skipping file move." }
@@ -202,11 +263,27 @@ class MigrateMangaUseCase(
         val downloadedFiles = downloadMangaDir.listFiles().orEmpty()
             .filter { !it.name.orEmpty().startsWith('.') && it.name != "cover.jpg" }
 
-        if (downloadedFiles.isEmpty()) return
+        val totalFiles = downloadedFiles.size
+        logcat(LogPriority.INFO) { "[Migrate Chapter Stage 2] Found $totalFiles physical files in '$sourcePathStr' to move to '$targetPathStr'" }
+
+        if (downloadedFiles.isEmpty()) {
+            logcat(LogPriority.WARN) { "[Migrate Chapter Stage 2] 0 physical files found in '$sourcePathStr'. Nothing to move." }
+            return
+        }
 
         val usedNames = mutableSetOf<String>()
+        val notificationId = (target.id xor 0x502).toInt()
 
         downloadedFiles.forEachIndexed { index, file ->
+            val currentProgress = index + 1
+            context.notify(notificationId, Notifications.CHANNEL_COMMON) {
+                setContentTitle("Migrando descargas: ${current.title}")
+                setContentText("$currentProgress / $totalFiles capítulos")
+                setSmallIcon(R.drawable.ic_mihon)
+                setProgress(totalFiles, currentProgress, false)
+                setOngoing(true)
+                setOnlyAlertOnce(true)
+            }
             val fileNameNoExt = file.nameWithoutExtension.orEmpty()
             val fileNameRaw = file.name.orEmpty()
 
@@ -378,35 +455,52 @@ class MigrateMangaUseCase(
 
     private fun moveUniFile(sourceFile: UniFile, targetDir: UniFile, newName: String) {
         try {
-            if (sourceFile.name == newName && sourceFile.parentFile?.uri == targetDir.uri) return
+            val sourcePath = sourceFile.displayablePath
+            val targetParentPath = targetDir.displayablePath
+            val targetPath = "$targetParentPath/$newName"
+
+            logcat(LogPriority.INFO) { "[Migrate File Copy] '$sourcePath' ---> '$targetPath'" }
+
+            if (sourceFile.name == newName && sourceFile.parentFile?.uri == targetDir.uri) {
+                logcat(LogPriority.INFO) { "[Migrate File Copy] Source and target are identical. Skipping." }
+                return
+            }
 
             if (sourceFile.parentFile?.uri == targetDir.uri && sourceFile.renameTo(newName)) {
+                logcat(LogPriority.INFO) { "[Migrate File Copy] Renamed file in-place to '$newName'" }
                 return
             }
 
             if (sourceFile.isFile) {
-                val existingFile = targetDir.findFile(newName)
-                if (existingFile != null && existingFile.uri != sourceFile.uri) {
-                    runCatching { existingFile.delete() }
+                val destination = targetDir.findFile(newName) ?: targetDir.createFile(newName)
+                if (destination == null) {
+                    logcat(LogPriority.ERROR) { "[Migrate File Copy Error] Failed to create destination file '$newName' in '$targetParentPath'" }
+                    return
                 }
-                val destination = targetDir.createFile(newName) ?: targetDir.findFile(newName) ?: return
-                sourceFile.openInputStream().use { input ->
+
+                val bytesCopied = sourceFile.openInputStream().use { input ->
                     destination.openOutputStream().use { output ->
                         input.copyTo(output)
                     }
                 }
-                runCatching { sourceFile.delete() }
+                logcat(LogPriority.INFO) { "[Migrate File Copy Success] Copied $bytesCopied bytes for '$newName' from '$sourcePath' ---> '$targetPath'" }
+                val deleted = runCatching { sourceFile.delete() }.getOrDefault(false)
+                logcat(LogPriority.INFO) { "[Migrate File Copy] Deleted original file '$sourcePath': $deleted" }
             } else if (sourceFile.isDirectory) {
-                val destination = targetDir.findFile(newName)?.takeIf { it.isDirectory }
-                    ?: targetDir.createDirectory(newName)
-                    ?: return
+                val destination = targetDir.findFile(newName)?.takeIf { it.isDirectory } ?: targetDir.createDirectory(newName)
+                if (destination == null) {
+                    logcat(LogPriority.ERROR) { "[Migrate File Copy Error] Failed to create destination directory '$newName' in '$targetParentPath'" }
+                    return
+                }
+
                 sourceFile.listFiles().orEmpty().forEach { child ->
                     moveUniFile(child, destination, child.name.orEmpty())
                 }
-                runCatching { sourceFile.delete() }
+                val deleted = runCatching { sourceFile.delete() }.getOrDefault(false)
+                logcat(LogPriority.INFO) { "[Migrate File Copy] Deleted original directory '$sourcePath': $deleted" }
             }
         } catch (e: Exception) {
-            logcat(LogPriority.ERROR, e) { "Failed to move file ${sourceFile.name} to $newName" }
+            logcat(LogPriority.ERROR, e) { "[Migrate File Copy Error] Failed to move file '${sourceFile.name}' to '$newName' in '${targetDir.name}'" }
         }
     }
 }

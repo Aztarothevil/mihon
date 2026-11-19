@@ -45,6 +45,8 @@ import java.io.File
 import java.io.IOException
 import eu.kanade.tachiyomi.source.Source as SourceModel
 
+private const val SHOW_REAL_IMAGE_LOADER_ERRORS = false
+
 /**
  * A [Fetcher] that fetches cover image for [Manga] object.
  *
@@ -197,7 +199,15 @@ class MangaCoverFetcher(
 
         // 6. If all fetch attempts failed
         if (url.isNullOrBlank()) {
-            error("No cover specified")
+            if (SHOW_REAL_IMAGE_LOADER_ERRORS) {
+                error("No cover specified")
+            } else {
+                throw kotlinx.coroutines.CancellationException("No cover specified")
+            }
+        }
+
+        if (!SHOW_REAL_IMAGE_LOADER_ERRORS) {
+            throw kotlinx.coroutines.CancellationException("Failed to fetch cover", networkException)
         }
 
         throw networkException ?: error("Failed to fetch cover")
